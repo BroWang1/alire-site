@@ -72,8 +72,8 @@ td.user{font-family:var(--mono);font-size:13px}
 .thumb.more{width:auto;height:auto;border:0;background:none;color:var(--muted);font-size:12px;align-self:center;cursor:default}
 .viewer{position:fixed;inset:0;background:rgba(10,14,18,.86);display:flex;flex-direction:column;z-index:50;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
 .viewer[hidden]{display:none}
-.vbar{display:flex;gap:10px;align-items:center;padding:10px 16px;color:#e7ecf1;font-size:14px}
-.vbar .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vbar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:10px 16px;color:#e7ecf1;font-size:14px}
+.vbar .grow{flex:1 1 160px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vbar .btn{background:#1a222d;color:#e7ecf1;border-color:#43515f}
 .vstage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 16px 16px}
 .vstage canvas{max-width:100%;max-height:100%;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,.5)}
@@ -161,6 +161,7 @@ td.user{font-family:var(--mono);font-size:13px}
     <button class="btn" id="vPrev">‹ Prev</button>
     <button class="btn" id="vNext">Next ›</button>
     <span class="grow" id="vTitle"></span>
+    <button class="btn" id="vSave">Save PDF</button>
     <button class="btn" id="vClose">Close</button>
   </div>
   <div class="vstage"><canvas id="vCanvas"></canvas></div>
@@ -530,13 +531,16 @@ td.user{font-family:var(--mono);font-size:13px}
   }
   const baseName = () => (state.name || 'labels').replace(/\.pdf$/i, '');
 
-  $('savePdf').addEventListener('click', async () => {
+  async function saveSortedPdf(btn) {
     if (!state) return;
-    $('savePdf').disabled = true; status.textContent = 'Building PDF…';
+    btn.disabled = true; const old = btn.textContent; btn.textContent = 'Building…'; status.textContent = 'Building PDF…';
     try { const bytes = await buildPdf(); await saveFile(baseName() + '-sorted.pdf', new Blob([bytes], { type: 'application/pdf' }), 'application/pdf'); }
     catch (e) { status.textContent = 'Could not build the PDF: ' + (e && e.message || e); }
-    $('savePdf').disabled = false;
-  });
+    btn.disabled = false; btn.textContent = old;
+    if (btn === $('vSave')) vTitle.textContent = status.textContent + ' — ' + vTitle.textContent.replace(/^.*? — /, '');
+  }
+  $('savePdf').addEventListener('click', () => saveSortedPdf($('savePdf')));
+  $('vSave').addEventListener('click', () => saveSortedPdf($('vSave')));
   $('saveCsv').addEventListener('click', () => { if (state) saveFile(baseName() + '-index.csv', buildCsv(), 'text/csv'); });
   $('pileBig').addEventListener('change', () => state && render());
   $('pileAz').addEventListener('change', () => state && render());
