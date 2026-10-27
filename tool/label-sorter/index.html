@@ -79,6 +79,27 @@ td.user{font-family:var(--mono);font-size:13px}
 .how{color:var(--muted);font-size:14px;display:grid;gap:6px}
 .how b{color:var(--fg);font-weight:600}
 @media (prefers-reduced-motion: reduce){.drop{transition:none}}
+.stat .n.small{font-size:15px;line-height:1.5;padding-top:4px}
+/* Phone: each shipment becomes a stacked card instead of a 7-column row */
+@media (max-width:640px){
+  .row .btn{flex:1 1 100%}
+  .tablewrap{overflow-x:visible}
+  #table thead{display:none}
+  #table,#table tbody{display:block;width:100%}
+  #table tr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 10px;padding:10px 8px;border-bottom:1px solid var(--line)}
+  #table tr.group{display:block;padding:8px}
+  #table tr.group td{border:0;padding:0;background:none}
+  #table tr:not(.group) td{border:0;padding:0;text-align:left}
+  #table td:nth-child(1){order:1;flex:0 0 26px;font-weight:600}
+  #table td:nth-child(3){order:2;flex:1 1 0;min-width:0;word-break:break-all}
+  #table td:nth-child(2){order:3;flex:1 1 100%}
+  #table td:nth-child(4){order:4;flex:1 1 100%;font-size:13px}
+  #table td:nth-child(5),#table td:nth-child(6),#table td:nth-child(7){order:5;flex:0 0 auto;font-size:12px;color:var(--muted);white-space:nowrap}
+  #table td:nth-child(5)::before{content:"items "}
+  #table td:nth-child(6)::before{content:"· was p. "}
+  #table td:nth-child(7)::before{content:"· now p. "}
+  .thumb{width:72px;height:108px}
+}
 </style>
 
 <div class="stack">
@@ -290,7 +311,8 @@ td.user{font-family:var(--mono);font-size:13px}
     stats.innerHTML = '';
     const stat = (n, l) => { const d = document.createElement('div'); d.className = 'stat'; d.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`; stats.appendChild(d); };
     stat(sorted.length, 'shipments'); stat(labels, 'labels'); stat(state.pageCount, 'pages');
-    stat(Object.keys(bySku).sort((a, b) => a - b).map(k => `${bySku[k]}×${k}`).join(' '), 'boxes by SKU count');
+    stat(Object.keys(bySku).sort((a, b) => a - b).map(k => `${bySku[k]} × ${k}‑SKU`).join('<br>'), 'boxes by SKU count');
+    stats.lastChild.querySelector('.n').classList.add('small');
     stat(flagged, flagged ? 'flagged, check by hand' : 'flagged');
 
     notes.innerHTML = '';
