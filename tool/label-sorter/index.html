@@ -121,6 +121,8 @@ td.user{font-family:var(--mono);font-size:13px}
       <label><input type="radio" name="pile" id="pileAz" value="az"> A to Z</label>
       <span style="flex-basis:100%;height:0"></span>
       <label><input type="checkbox" id="countPage" checked> Put a product count page at the front of the saved PDF</label>
+      <span style="flex-basis:100%;height:0"></span>
+      <label><input type="checkbox" id="includePickup" checked> Include local pickup slips, at the end</label>
     </div>
     <p class="status" id="status"></p>
   </section>
@@ -149,7 +151,7 @@ td.user{font-family:var(--mono);font-size:13px}
     <p><b>The label</b> is the first page after that with no text at all, since labels are images. Slip pages and label stay together, in that order.</p>
     <p><b>The products</b> are read from the slip rows, with the lot number such as “#12” removed. A box with two of the same product counts as one SKU.</p>
     <p><b>The order</b> is 1-SKU boxes, then 2-SKU, and so on. Inside each, boxes with the same contents sit together, biggest pile first (or A to Z). Within a pile, customers A to Z.</p>
-    <p><b>Local pickup</b> slips, marked LOCAL PICKUP in their header, have no label. They are kept together at the end, counted in the product count, and never flagged for a missing label.</p>
+    <p><b>Local pickup</b> slips, marked LOCAL PICKUP in their header, have no label. When included they sit together at the end and count in the product count; untick the option to leave them out of the PDF, the count and the index.</p>
     <p>Every slip’s own item total is compared with the rows read from it. A box where they differ is flagged, never dropped.</p>
   </section>
 </div>
@@ -307,7 +309,11 @@ td.user{font-family:var(--mono);font-size:13px}
   // ---------- render ----------
   function render() {
     const pileMode = $('pileAz').checked ? 'az' : 'big';
-    const { sorted, pileSize, sigOf } = orderShipments(state.shipments, pileMode);
+    const includePickup = $('includePickup').checked;
+    const all = orderShipments(state.shipments, pileMode);
+    const sorted = all.sorted.filter(s => includePickup || !s.pickup);
+    const { pileSize, sigOf } = all;
+    const leftOut = all.sorted.length - sorted.length;
     state.order = sorted;
     const labels = sorted.filter(s => s.labelPage).length;
     const pickups = sorted.filter(s => s.pickup).length;
@@ -320,6 +326,7 @@ td.user{font-family:var(--mono);font-size:13px}
     stat(Object.keys(bySku).sort((a, b) => a - b).map(k => `${bySku[k]} × ${k}‑SKU`).join('<br>'), 'boxes by SKU count');
     stats.lastChild.querySelector('.n').classList.add('small');
     if (pickups) stat(pickups, 'local pickup, no label');
+    if (leftOut) stat(leftOut, 'local pickup left out');
     stat(flagged, flagged ? 'flagged, check by hand' : 'flagged');
 
     notes.innerHTML = '';
@@ -533,6 +540,7 @@ td.user{font-family:var(--mono);font-size:13px}
   $('saveCsv').addEventListener('click', () => { if (state) saveFile(baseName() + '-index.csv', buildCsv(), 'text/csv'); });
   $('pileBig').addEventListener('change', () => state && render());
   $('pileAz').addEventListener('change', () => state && render());
+  $('includePickup').addEventListener('change', () => state && render());
 
   // ---------- input ----------
   async function handleFile(file) {
