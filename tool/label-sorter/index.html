@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Sort a Whatnot packing-slip-and-label PDF by box contents. Runs entirely in your browser; nothing is uploaded.">
+<style>html{color-scheme:light dark}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Whatnot Label Sorter</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column tool page; a drop zone up top, a results ledger below. Slate paper, teal ink. */
+:root{
+  --bg:#f2f4f6; --panel:#ffffff; --fg:#17202b; --muted:#5c6b7a; --line:#d3dae2; --line-strong:#aab5c1;
+  --accent:#0d6b70; --accent-ink:#ffffff; --accent-soft:#dff0f0;
+  --good:#1f7a46; --warn:#9a5b00; --bad:#b3261e; --warn-soft:#fff3dc; --bad-soft:#fde8e6;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#121821; --panel:#1a222d; --fg:#e7ecf1; --muted:#97a5b4; --line:#2b3643; --line-strong:#43515f;
+  --accent:#4fb6bb; --accent-ink:#0b1a1b; --accent-soft:#15353a;
+  --good:#5fc48a; --warn:#e3a84a; --bad:#f28b82; --warn-soft:#3a2d12; --bad-soft:#3d1c19; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#121821; --panel:#1a222d; --fg:#e7ecf1; --muted:#97a5b4; --line:#2b3643; --line-strong:#43515f;
+  --accent:#4fb6bb; --accent-ink:#0b1a1b; --accent-soft:#15353a;
+  --good:#5fc48a; --warn:#e3a84a; --bad:#f28b82; --warn-soft:#3a2d12; --bad-soft:#3d1c19; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;padding-block:28px 48px;padding-inline:max(16px,calc(50% - 520px))}
+h1{font-size:26px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:15px;font-weight:600;margin:0;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0}
+.lede{color:var(--muted);max-width:62ch}
+.stack{display:flex;flex-direction:column;gap:20px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.drop{border:2px dashed var(--line-strong);border-radius:10px;padding:34px 20px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;transition:background .15s,border-color .15s}
+.drop.over,.drop:hover{border-color:var(--accent);background:var(--accent-soft)}
+.drop strong{font-weight:600}
+.drop input{display:none}
+.btn{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--fg);font:inherit;font-weight:500;padding:9px 14px;border-radius:8px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn:focus-visible,.drop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.row>.grow{flex:1 1 200px;min-width:0}
+.opts{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center}
+.opts label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.stat{padding:12px 14px;border:1px solid var(--line);border-radius:8px}
+.stat .n{font-family:var(--mono);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+.stat .l{color:var(--muted);font-size:13px}
+.note{padding:10px 12px;border-radius:8px;font-size:14px}
+.note.warn{background:var(--warn-soft);color:var(--warn)}
+.note.bad{background:var(--bad-soft);color:var(--bad)}
+.note.good{color:var(--good)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;background:var(--bg);position:sticky;top:0}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.group td{background:var(--accent-soft);font-weight:600;border-top:1px solid var(--line-strong)}
+tr.group td .pile{font-weight:400;color:var(--muted);margin-left:8px}
+td.user{font-family:var(--mono);font-size:13px}
+.flag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:999px;background:var(--bad-soft);color:var(--bad);margin-left:6px;font-family:var(--sans)}
+.status{font-size:14px;color:var(--muted);min-height:1.4em}
+.thumbs{display:flex;gap:6px}
+.thumb{width:66px;height:99px;border:1px solid var(--line);border-radius:4px;background:var(--bg);cursor:zoom-in;display:block}
+.thumb.more{width:auto;height:auto;border:0;background:none;color:var(--muted);font-size:12px;align-self:center;cursor:default}
+.viewer{position:fixed;inset:0;background:rgba(10,14,18,.86);display:flex;flex-direction:column;z-index:50;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+.viewer[hidden]{display:none}
+.vbar{display:flex;gap:10px;align-items:center;padding:10px 16px;color:#e7ecf1;font-size:14px}
+.vbar .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vbar .btn{background:#1a222d;color:#e7ecf1;border-color:#43515f}
+.vstage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 16px 16px}
+.vstage canvas{max-width:100%;max-height:100%;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.how{color:var(--muted);font-size:14px;display:grid;gap:6px}
+.how b{color:var(--fg);font-weight:600}
+@media (prefers-reduced-motion: reduce){.drop{transition:none}}
+</style>
+
+<div class="stack">
+  <header>
+    <h1>Whatnot Label Sorter</h1>
+    <p class="lede">Drop the merged packing-slip-and-label PDF. It groups every shipment by what is inside: single-product boxes first, then two-product boxes, and so on, with the product you have the most boxes of leading each group. You get back one PDF with each slip still followed by its own label. Everything runs in your browser.</p>
+  </header>
+
+  <section class="panel stack" aria-label="Input">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a PDF">
+      <strong>Drop the PDF here, or click to choose</strong>
+      <span class="status" id="fileinfo">Accepts the PDF from Whatnot or from the Merge labels step: packing slip pages followed by a label page per shipment.</span>
+      <input type="file" id="file" accept="application/pdf,.pdf">
+    </div>
+    <div class="opts">
+      <span style="color:var(--muted)">Within each SKU count, order products by:</span>
+      <label><input type="radio" name="pile" id="pileBig" value="big" checked> most boxes first</label>
+      <label><input type="radio" name="pile" id="pileAz" value="az"> A to Z</label>
+      <span style="flex-basis:100%;height:0"></span>
+      <label><input type="checkbox" id="countPage" checked> Put a product count page at the front of the saved PDF</label>
+    </div>
+    <p class="status" id="status"></p>
+  </section>
+
+  <section class="panel stack" id="results" hidden aria-label="Result">
+    <div class="row">
+      <div class="grow"><h2>Result</h2></div>
+      <button class="btn" id="previewBtn">Preview sorted PDF</button>
+      <button class="btn primary" id="savePdf">Save organized PDF</button>
+      <button class="btn" id="saveCsv">Save index (CSV)</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="notes" class="stack" style="gap:8px"></div>
+    <details id="countBox" open>
+      <summary style="cursor:pointer;font-weight:600">Product count (units to pull)</summary>
+      <div class="tablewrap" style="margin-top:8px"><table id="countTable"><thead><tr><th class="num">Units</th><th>Product</th><th class="num">Boxes</th></tr></thead><tbody></tbody></table></div>
+    </details>
+    <div class="tablewrap"><table id="table"><thead><tr>
+      <th class="num">#</th><th>Preview</th><th>Customer</th><th>Products in box</th><th class="num">Items</th><th class="num">Was pages</th><th class="num">Now pages</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="panel how" aria-label="How it decides">
+    <h2>How it decides, every time the same way</h2>
+    <p><b>A shipment</b> starts at a page whose first line is “Whatnot Packing Slip” and that names a “To:” customer. Any following page that also starts with “Whatnot Packing Slip” is a continuation of the same slip.</p>
+    <p><b>The label</b> is the first page after that with no text at all, since labels are images. Slip pages and label stay together, in that order.</p>
+    <p><b>The products</b> are read from the slip rows, with the lot number such as “#12” removed. A box with two of the same product counts as one SKU.</p>
+    <p><b>The order</b> is 1-SKU boxes, then 2-SKU, and so on. Inside each, boxes with the same contents sit together, biggest pile first (or A to Z). Within a pile, customers A to Z.</p>
+    <p>Every slip’s own item total is compared with the rows read from it. A box where they differ is flagged, never dropped.</p>
+  </section>
+</div>
+
+<div class="viewer" id="viewer" hidden role="dialog" aria-label="Page preview">
+  <div class="vbar">
+    <button class="btn" id="vPrev">‹ Prev</button>
+    <button class="btn" id="vNext">Next ›</button>
+    <span class="grow" id="vTitle"></span>
+    <button class="btn" id="vClose">Close</button>
+  </div>
+  <div class="vstage"><canvas id="vCanvas"></canvas></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const drop = $('drop'), fileInput = $('file'), status = $('status'), fileinfo = $('fileinfo');
+  const results = $('results'), tbody = $('table').querySelector('tbody'), notes = $('notes'), stats = $('stats');
+
+  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  let state = null;           // { name, bytes, pages, shipments, order, warnings }
+  let downloadsNs = undefined; // resolved lazily
+
+  // ---------- text extraction: rebuild lines like a layout dump ----------
+  async function pageLines(page) {
+    const tc = await page.getTextContent();
+    const items = tc.items.filter(i => i.str && i.str.trim() !== '').map(i => ({
+      x: i.transform[4], y: i.transform[5], w: i.width || 0, h: i.height || Math.abs(i.transform[3]) || 8, s: i.str
+    }));
+    if (!items.length) return [];
+    items.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+    const lines = [];
+    for (const it of items) {
+      const last = lines[lines.length - 1];
+      if (last && Math.abs(last.y - it.y) <= Math.max(2.5, it.h * 0.45)) last.items.push(it);
+      else lines.push({ y: it.y, items: [it] });
+    }
+    return lines.map(l => {
+      l.items.sort((a, b) => a.x - b.x);
+      let out = '', endX = null;
+      for (const it of l.items) {
+        if (endX !== null) {
+          const gap = it.x - endX;
+          out += gap > 7 ? '   ' : (gap > 1 ? ' ' : '');
+        }
+        out += it.s; endX = it.x + it.w;
+      }
+      return { text: out, x0: l.items[0].x };
+    });
+  }
+
+  // ---------- slip parsing ----------
+  const RE_ROW = /^\s*(\d+)\s{2,}(.+?)\s{2,}Order\s+(\d+)/;
+  const RE_FOOT = /^\s*\d+\s+Items?\b|USPS|Ground Advantage|^\s*#\d{10,}/;
+  const productOf = name => {
+    const m = name.match(/^(.*?)\s*#\s*\d+\b/);
+    return (m ? m[1] : name).replace(/\s+/g, ' ').trim();
+  };
+
+  function parseSlip(lines, isFirstPage) {
+    const text = lines.map(l => l.text);
+    const user = (text.join('\n').match(/To:\s*(\S+)/) || [, ''])[1];
+    const declared = text.map(t => t.match(/^\s*(\d+)\s+Items?\b/)).find(Boolean);
+    const items = []; let cur = null; let started = !isFirstPage;
+    for (const t of text) {
+      if (/^\s*QTY\s+Name/.test(t)) { started = true; continue; }
+      if (!started) continue;
+      if (/^\s*Whatnot Packing Slip/.test(t)) continue;
+      if (RE_FOOT.test(t)) { cur = null; started = false; continue; }
+      const m = t.match(RE_ROW);
+      if (m) { cur = { qty: parseInt(m[1], 10), name: m[2].trim(), order: m[3] }; items.push(cur); continue; }
+      if (cur && t.trim()) {
+        const seg = t.trim().split(/\s{3,}/)[0];
+        if (!/^\$?\d/.test(seg)) cur.name += ' ' + seg;
+      }
+    }
+    for (const it of items) it.product = productOf(it.name);
+    return { user, declared: declared ? parseInt(declared[1], 10) : null, items };
+  }
+
+  async function analyze(bytes, name) {
+    status.textContent = 'Reading pages…';
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+    const n = pdf.numPages;
+    const pages = [];
+    for (let p = 1; p <= n; p++) {
+      const page = await pdf.getPage(p);
+      const lines = await pageLines(page);
+      const first = lines.length ? lines[0].text.trim() : '';
+      let kind = 'other';
+      if (!lines.length) kind = 'label';
+      else if (/^Whatnot Packing Slip/.test(first)) kind = /To:\s*\S+/.test(lines.map(l => l.text).join('\n')) ? 'slip' : 'slipcont';
+      pages.push({ num: p, kind, lines });
+      if (p % 10 === 0) status.textContent = `Reading pages… ${p} / ${n}`;
+    }
+    // group
+    const shipments = [], warnings = [];
+    let i = 0, loose = [];
+    while (i < n) {
+      const pg = pages[i];
+      if (pg.kind !== 'slip') {
+        loose.push(pg.num); i++; continue;
+      }
+      const slipPages = [pg]; i++;
+      while (i < n && pages[i].kind === 'slipcont') { slipPages.push(pages[i]); i++; }
+      let labelPage = null;
+      if (i < n && pages[i].kind === 'label') { labelPage = pages[i]; i++; }
+      const parsed = slipPages.map((sp, k) => parseSlip(sp.lines, k === 0));
+      const items = parsed.flatMap(p => p.items);
+      const declared = parsed.map(p => p.declared).find(v => v !== null) ?? null;
+      const user = parsed[0].user || '(no name)';
+      const qty = items.reduce((a, b) => a + b.qty, 0);
+      const products = [...new Set(items.map(it => it.product))].sort((a, b) => a.localeCompare(b));
+      const flags = [];
+      if (!labelPage) flags.push('no label page after slip');
+      if (declared !== null && declared !== qty) flags.push(`slip says ${declared} items, rows read ${qty}`);
+      if (!items.length) flags.push('no product rows read');
+      shipments.push({ user, items, qty, declared, products, slipPages: slipPages.map(p => p.num), labelPage: labelPage ? labelPage.num : null, flags });
+    }
+    if (loose.length) warnings.push(`${loose.length} page(s) were not recognized as a slip or label and are kept at the end, unchanged: ${loose.slice(0, 12).join(', ')}${loose.length > 12 ? '…' : ''}`);
+    return { name, bytes, pdf, pageCount: n, shipments, loose, warnings };
+  }
+
+  // ---------- ordering ----------
+  function orderShipments(shipments, pileMode) {
+    const sigOf = s => s.products.join(' + ');
+    const pileSize = {};
+    for (const s of shipments) pileSize[sigOf(s)] = (pileSize[sigOf(s)] || 0) + 1;
+    const sorted = shipments.slice().sort((a, b) => {
+      const ka = a.products.length || 99, kb = b.products.length || 99;
+      if (ka !== kb) return ka - kb;
+      const sa = sigOf(a), sb = sigOf(b);
+      if (sa !== sb) {
+        if (pileMode === 'big' && pileSize[sa] !== pileSize[sb]) return pileSize[sb] - pileSize[sa];
+        return sa.localeCompare(sb);
+      }
+      return a.user.localeCompare(b.user) || a.slipPages[0] - b.slipPages[0];
+    });
+    let pos = 1;
+    for (const s of sorted) {
+      const count = s.slipPages.length + (s.labelPage ? 1 : 0);
+      s.newPages = [pos, pos + count - 1]; pos += count;
+    }
+    return { sorted, pileSize, sigOf };
+  }
+
+  // ---------- render ----------
+  function render() {
+    const pileMode = $('pileAz').checked ? 'az' : 'big';
+    const { sorted, pileSize, sigOf } = orderShipments(state.shipments, pileMode);
+    state.order = sorted;
+    const labels = sorted.filter(s => s.labelPage).length;
+    const flagged = sorted.filter(s => s.flags.length).length;
+    const bySku = {};
+    for (const s of sorted) bySku[s.products.length] = (bySku[s.products.length] || 0) + 1;
+    stats.innerHTML = '';
+    const stat = (n, l) => { const d = document.createElement('div'); d.className = 'stat'; d.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`; stats.appendChild(d); };
+    stat(sorted.length, 'shipments'); stat(labels, 'labels'); stat(state.pageCount, 'pages');
+    stat(Object.keys(bySku).sort((a, b) => a - b).map(k => `${bySku[k]}×${k}`).join(' '), 'boxes by SKU count');
+    stat(flagged, flagged ? 'flagged, check by hand' : 'flagged');
+
+    notes.innerHTML = '';
+    const note = (cls, text) => { const d = document.createElement('div'); d.className = 'note ' + cls; d.textContent = text; notes.appendChild(d); };
+    for (const w of state.warnings) note('warn', w);
+    if (!flagged && !state.warnings.length) note('good', 'Every slip’s item total matches the rows read from it, and every slip has a label page.');
+
+    tbody.innerHTML = '';
+    let lastSig = null, lastSku = null, pos = 0;
+    for (const s of sorted) {
+      pos++;
+      const sig = sigOf(s);
+      if (sig !== lastSig) {
+        const tr = document.createElement('tr'); tr.className = 'group';
+        const skuLabel = s.products.length === 1 ? '1 SKU' : `${s.products.length} SKUs`;
+        const td = document.createElement('td'); td.colSpan = 7;
+        td.innerHTML = `${lastSku !== s.products.length ? `<span style="color:var(--accent)">${skuLabel}</span> · ` : ''}${esc(sig || '(no products read)')}<span class="pile">${pileSize[sig]} box${pileSize[sig] === 1 ? '' : 'es'}</span>`;
+        tr.appendChild(td); tbody.appendChild(tr);
+        lastSig = sig; lastSku = s.products.length;
+      }
+      const tr = document.createElement('tr');
+      const prodCell = s.items.map(it => `${it.qty}× ${esc(it.product)}`).join('<br>');
+      const pagesOf = s.slipPages.concat(s.labelPage ? [s.labelPage] : []);
+      const thumbs = `<div class="thumbs">${pagesOf.slice(0, 3).map(p => `<canvas class="thumb" data-page="${p}" width="66" height="99" title="Page ${p}"></canvas>`).join('')}${pagesOf.length > 3 ? `<span class="thumb more">+${pagesOf.length - 3}</span>` : ''}</div>`;
+      tr.innerHTML = `<td class="num">${pos}</td><td>${thumbs}</td><td class="user">${esc(s.user)}${s.flags.map(f => `<span class="flag">${esc(f)}</span>`).join('')}</td>` +
+        `<td>${prodCell}</td><td class="num">${s.qty}</td>` +
+        `<td class="num">${s.slipPages[0]}–${s.labelPage || s.slipPages[s.slipPages.length - 1]}</td>` +
+        `<td class="num">${s.newPages[0]}${s.newPages[1] !== s.newPages[0] ? '–' + s.newPages[1] : ''}</td>`;
+      tbody.appendChild(tr);
+    }
+    // product count
+    const counts = productCounts(sorted);
+    const ctb = $('countTable').querySelector('tbody'); ctb.innerHTML = '';
+    for (const c of counts) { const tr = document.createElement('tr'); tr.innerHTML = `<td class="num">${c.units}</td><td>${esc(c.product)}</td><td class="num">${c.boxes}</td>`; ctb.appendChild(tr); }
+    const tot = document.createElement('tr'); tot.innerHTML = `<td class="num"><b>${counts.reduce((a, c) => a + c.units, 0)}</b></td><td><b>Total units, ${counts.length} products</b></td><td class="num"><b>${sorted.length}</b></td>`; ctb.appendChild(tot);
+
+    results.hidden = false;
+    status.textContent = `${state.name}: ${sorted.length} shipments found.`;
+    watchThumbs();
+  }
+  function productCounts(shipments) {
+    const m = new Map();
+    for (const s of shipments) {
+      const seen = new Set();
+      for (const it of s.items) {
+        const c = m.get(it.product) || { product: it.product, units: 0, boxes: 0 };
+        c.units += it.qty; if (!seen.has(it.product)) { c.boxes++; seen.add(it.product); }
+        m.set(it.product, c);
+      }
+    }
+    return [...m.values()].sort((a, b) => b.units - a.units || a.product.localeCompare(b.product));
+  }
+
+  // ---------- page rendering (thumbnails + viewer) ----------
+  const renderQueue = new Map();
+  async function drawPage(canvas, pageNum, targetW, targetH) {
+    const page = await state.pdf.getPage(pageNum);
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(targetW / base.width, targetH / base.height) * (window.devicePixelRatio || 1);
+    const vp = page.getViewport({ scale });
+    canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+    canvas.style.width = Math.round(vp.width / (window.devicePixelRatio || 1)) + 'px';
+    canvas.style.height = Math.round(vp.height / (window.devicePixelRatio || 1)) + 'px';
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  }
+  let thumbObserver = null;
+  function watchThumbs() {
+    if (thumbObserver) thumbObserver.disconnect();
+    thumbObserver = new IntersectionObserver(entries => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        const c = en.target; thumbObserver.unobserve(c);
+        if (c.dataset.done) continue; c.dataset.done = '1';
+        const p = parseInt(c.dataset.page, 10);
+        const job = (renderQueue.get('last') || Promise.resolve()).then(() => drawPage(c, p, 66, 99)).catch(() => {});
+        renderQueue.set('last', job);
+      }
+    }, { rootMargin: '300px' });
+    document.querySelectorAll('canvas.thumb[data-page]').forEach(c => thumbObserver.observe(c));
+  }
+  // Viewer walks the SORTED sequence
+  const viewer = $('viewer'), vCanvas = $('vCanvas'), vTitle = $('vTitle');
+  let vSeq = [], vIdx = 0, vToken = 0;
+  function sortedSequence() {
+    const seq = [];
+    state.order.forEach((s, i) => {
+      s.slipPages.forEach((p, k) => seq.push({ page: p, label: `${i + 1}. ${s.user} · slip${s.slipPages.length > 1 ? ' ' + (k + 1) + '/' + s.slipPages.length : ''}` }));
+      if (s.labelPage) seq.push({ page: s.labelPage, label: `${i + 1}. ${s.user} · label` });
+    });
+    state.loose.forEach(p => seq.push({ page: p, label: `unrecognized page ${p}` }));
+    return seq;
+  }
+  async function showViewer(idx) {
+    vIdx = Math.max(0, Math.min(vSeq.length - 1, idx));
+    const token = ++vToken;
+    const it = vSeq[vIdx];
+    vTitle.textContent = `${vIdx + 1} / ${vSeq.length} — ${it.label} (original page ${it.page})`;
+    viewer.hidden = false;
+    const stage = viewer.querySelector('.vstage');
+    try {
+      const tmp = document.createElement('canvas');
+      await drawPage(tmp, it.page, stage.clientWidth - 32, stage.clientHeight - 16);
+      if (token !== vToken) return;
+      vCanvas.width = tmp.width; vCanvas.height = tmp.height; vCanvas.style.width = tmp.style.width; vCanvas.style.height = tmp.style.height;
+      vCanvas.getContext('2d').drawImage(tmp, 0, 0);
+    } catch (e) { vTitle.textContent += ' (could not render)'; }
+  }
+  function openViewerAt(pageNum) {
+    vSeq = sortedSequence();
+    const i = Math.max(0, vSeq.findIndex(x => x.page === pageNum));
+    showViewer(i);
+  }
+  $('previewBtn').addEventListener('click', () => { if (state) { vSeq = sortedSequence(); showViewer(0); } });
+  tbody.addEventListener('click', e => { const c = e.target.closest('canvas.thumb[data-page]'); if (c) openViewerAt(parseInt(c.dataset.page, 10)); });
+  $('vPrev').addEventListener('click', () => showViewer(vIdx - 1));
+  $('vNext').addEventListener('click', () => showViewer(vIdx + 1));
+  $('vClose').addEventListener('click', () => { viewer.hidden = true; });
+  viewer.addEventListener('click', e => { if (e.target === viewer || e.target.classList.contains('vstage')) viewer.hidden = true; });
+  document.addEventListener('keydown', e => {
+    if (viewer.hidden) return;
+    if (e.key === 'Escape') viewer.hidden = true;
+    else if (e.key === 'ArrowRight') showViewer(vIdx + 1);
+    else if (e.key === 'ArrowLeft') showViewer(vIdx - 1);
+  });
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // ---------- output ----------
+  async function buildPdf() {
+    const { PDFDocument } = PDFLib;
+    const src = await PDFDocument.load(state.bytes.slice(0));
+    const out = await PDFDocument.create();
+    if ($('countPage').checked) await addCountPages(out);
+    const seq = [];
+    for (const s of state.order) { for (const p of s.slipPages) seq.push(p - 1); if (s.labelPage) seq.push(s.labelPage - 1); }
+    for (const p of state.loose) seq.push(p - 1);
+    const pages = await out.copyPages(src, seq);
+    for (const pg of pages) out.addPage(pg);
+    return await out.save();
+  }
+  // 4x6 page(s) listing units per product, drawn with the built-in Helvetica
+  async function addCountPages(out) {
+    const { StandardFonts, rgb } = PDFLib;
+    const font = await out.embedFont(StandardFonts.Helvetica), bold = await out.embedFont(StandardFonts.HelveticaBold);
+    const W = 288, H = 432, M = 16, size = 9, lh = 12;
+    const counts = productCounts(state.order);
+    const total = counts.reduce((a, c) => a + c.units, 0);
+    const wrap = (text, maxW) => {
+      const words = text.split(' '), lines = []; let cur = '';
+      for (const w of words) { const t = cur ? cur + ' ' + w : w; if (font.widthOfTextAtSize(t, size) <= maxW) cur = t; else { if (cur) lines.push(cur); cur = w; } }
+      if (cur) lines.push(cur); return lines;
+    };
+    let page = null, y = 0, pageNo = 0;
+    const newPage = () => {
+      page = out.addPage([W, H]); pageNo++; y = H - M;
+      page.drawText('Product count', { x: M, y: y - 12, size: 13, font: bold });
+      page.drawText(`${baseName()}  ·  ${state.order.length} boxes  ·  page ${pageNo}`, { x: M, y: y - 25, size: 7.5, font, color: rgb(.35, .35, .35) });
+      y -= 40;
+      page.drawText('UNITS', { x: M, y, size: 7, font: bold }); page.drawText('PRODUCT', { x: M + 40, y, size: 7, font: bold }); page.drawText('BOXES', { x: W - M - 28, y, size: 7, font: bold });
+      y -= 4; page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: .6, color: rgb(.6, .6, .6) }); y -= lh;
+    };
+    newPage();
+    for (const c of counts) {
+      const lines = wrap(c.product, W - M * 2 - 40 - 34);
+      if (y - lines.length * lh < M + 14) newPage();
+      page.drawText(String(c.units), { x: M + 2, y, size: 11, font: bold });
+      page.drawText(String(c.boxes), { x: W - M - 28, y, size, font });
+      for (const ln of lines) { page.drawText(ln, { x: M + 40, y, size, font }); y -= lh; }
+      y -= 3;
+    }
+    if (y < M + 20) newPage();
+    y -= 2; page.drawLine({ start: { x: M, y: y + 9 }, end: { x: W - M, y: y + 9 }, thickness: .6, color: rgb(.6, .6, .6) });
+    page.drawText(`${total} units  ·  ${counts.length} products  ·  ${state.order.length} boxes`, { x: M, y: y - 4, size: 9, font: bold });
+  }
+  function buildCsv() {
+    const rows = [['position', 'customer', 'sku_count', 'products', 'items', 'original_pages', 'new_pages', 'flags']];
+    state.order.forEach((s, i) => rows.push([i + 1, s.user, s.products.length, s.items.map(it => `${it.qty}x ${it.product}`).join(' | '), s.qty,
+      `${s.slipPages[0]}-${s.labelPage || s.slipPages[s.slipPages.length - 1]}`, `${s.newPages[0]}-${s.newPages[1]}`, s.flags.join(' | ')]));
+    return rows.map(r => r.map(v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(',')).join('\n') + '\n';
+  }
+  async function getDownloads() {
+    if (downloadsNs !== undefined) return downloadsNs;
+    try { downloadsNs = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch (e) { downloadsNs = null; }
+    return downloadsNs;
+  }
+  async function saveFile(filename, data, mime) {
+    const dl = await getDownloads();
+    if (dl) {
+      try { await dl.save({ filename, data }); status.textContent = `Saved ${filename}.`; }
+      catch (e) { status.textContent = e && e.code === 'declined' ? 'Save cancelled.' : `Could not save: ${e && e.message || e}`; }
+      return;
+    }
+    // Opened as a plain file or on a host without the save prompt: a normal browser download.
+    const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    status.textContent = `Download started: ${filename}.`;
+  }
+  const baseName = () => (state.name || 'labels').replace(/\.pdf$/i, '');
+
+  $('savePdf').addEventListener('click', async () => {
+    if (!state) return;
+    $('savePdf').disabled = true; status.textContent = 'Building PDF…';
+    try { const bytes = await buildPdf(); await saveFile(baseName() + '-sorted.pdf', new Blob([bytes], { type: 'application/pdf' }), 'application/pdf'); }
+    catch (e) { status.textContent = 'Could not build the PDF: ' + (e && e.message || e); }
+    $('savePdf').disabled = false;
+  });
+  $('saveCsv').addEventListener('click', () => { if (state) saveFile(baseName() + '-index.csv', buildCsv(), 'text/csv'); });
+  $('pileBig').addEventListener('change', () => state && render());
+  $('pileAz').addEventListener('change', () => state && render());
+
+  // ---------- input ----------
+  async function handleFile(file) {
+    if (!file) return;
+    if (!/pdf$/i.test(file.name) && file.type !== 'application/pdf') { status.textContent = 'That is not a PDF.'; return; }
+    fileinfo.textContent = `${file.name} · ${(file.size / 1048576).toFixed(1)} MB`;
+    results.hidden = true;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      state = await analyze(bytes, file.name);
+      if (!state.shipments.length) { status.textContent = 'No Whatnot packing slips found in this PDF. It needs slip pages that start with “Whatnot Packing Slip”.'; return; }
+      render();
+    } catch (e) { status.textContent = 'Could not read this PDF: ' + (e && e.message || e); }
+  }
+  window.labelSorterLoad = handleFile; // for testing with a Blob/File
+  window.labelSorterBuild = buildPdf;
+
+  fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => handleFile(e.dataTransfer.files && e.dataTransfer.files[0]));
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => e.preventDefault());
+
+  if (!window.pdfjsLib || !window.PDFLib) status.textContent = 'The PDF libraries did not load. Check your connection and reload.';
+})();
+</script>
+</body>
+</html>
