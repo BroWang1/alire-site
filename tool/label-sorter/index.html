@@ -65,6 +65,7 @@ tr.group td{background:var(--accent-soft);font-weight:600;border-top:1px solid v
 tr.group td .pile{font-weight:400;color:var(--muted);margin-left:8px}
 td.user{font-family:var(--mono);font-size:13px}
 .flag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:999px;background:var(--bad-soft);color:var(--bad);margin-left:6px;font-family:var(--sans)}
+.flag.pickup{background:var(--accent-soft);color:var(--accent)}
 .status{font-size:14px;color:var(--muted);min-height:1.4em}
 .thumbs{display:flex;gap:6px}
 .thumb{width:66px;height:99px;border:1px solid var(--line);border-radius:4px;background:var(--bg);cursor:zoom-in;display:block}
@@ -148,6 +149,7 @@ td.user{font-family:var(--mono);font-size:13px}
     <p><b>The label</b> is the first page after that with no text at all, since labels are images. Slip pages and label stay together, in that order.</p>
     <p><b>The products</b> are read from the slip rows, with the lot number such as “#12” removed. A box with two of the same product counts as one SKU.</p>
     <p><b>The order</b> is 1-SKU boxes, then 2-SKU, and so on. Inside each, boxes with the same contents sit together, biggest pile first (or A to Z). Within a pile, customers A to Z.</p>
+    <p><b>Local pickup</b> slips, marked LOCAL PICKUP in their header, have no label. They are kept together at the end, counted in the product count, and never flagged for a missing label.</p>
     <p>Every slip’s own item total is compared with the rows read from it. A box where they differ is flagged, never dropped.</p>
   </section>
 </div>
@@ -266,11 +268,12 @@ td.user{font-family:var(--mono);font-size:13px}
       const user = parsed[0].user || '(no name)';
       const qty = items.reduce((a, b) => a + b.qty, 0);
       const products = [...new Set(items.map(it => it.product))].sort((a, b) => a.localeCompare(b));
+      const pickup = /LOCAL\s+PICKUP/i.test(slipPages[0].lines.map(l => l.text).join(' '));
       const flags = [];
-      if (!labelPage) flags.push('no label page after slip');
+      if (!labelPage && !pickup) flags.push('no label page after slip');
       if (declared !== null && declared !== qty) flags.push(`slip says ${declared} items, rows read ${qty}`);
       if (!items.length) flags.push('no product rows read');
-      shipments.push({ user, items, qty, declared, products, slipPages: slipPages.map(p => p.num), labelPage: labelPage ? labelPage.num : null, flags });
+      shipments.push({ user, items, qty, declared, products, pickup, slipPages: slipPages.map(p => p.num), labelPage: labelPage ? labelPage.num : null, flags });
     }
     if (loose.length) warnings.push(`${loose.length} page(s) were not recognized as a slip or label and are kept at the end, unchanged: ${loose.slice(0, 12).join(', ')}${loose.length > 12 ? '…' : ''}`);
     return { name, bytes, pdf, pageCount: n, shipments, loose, warnings };
@@ -278,10 +281,12 @@ td.user{font-family:var(--mono);font-size:13px}
 
   // ---------- ordering ----------
   function orderShipments(shipments, pileMode) {
-    const sigOf = s => s.products.join(' + ');
+    const sigOf = s => (s.pickup ? 'LOCAL PICKUP' : s.products.join(' + '));
     const pileSize = {};
     for (const s of shipments) pileSize[sigOf(s)] = (pileSize[sigOf(s)] || 0) + 1;
     const sorted = shipments.slice().sort((a, b) => {
+      if (a.pickup !== b.pickup) return a.pickup ? 1 : -1;          // pickups go last, together
+      if (a.pickup) return a.user.localeCompare(b.user);
       const ka = a.products.length || 99, kb = b.products.length || 99;
       if (ka !== kb) return ka - kb;
       const sa = sigOf(a), sb = sigOf(b);
@@ -305,20 +310,22 @@ td.user{font-family:var(--mono);font-size:13px}
     const { sorted, pileSize, sigOf } = orderShipments(state.shipments, pileMode);
     state.order = sorted;
     const labels = sorted.filter(s => s.labelPage).length;
+    const pickups = sorted.filter(s => s.pickup).length;
     const flagged = sorted.filter(s => s.flags.length).length;
     const bySku = {};
-    for (const s of sorted) bySku[s.products.length] = (bySku[s.products.length] || 0) + 1;
+    for (const s of sorted) if (!s.pickup) bySku[s.products.length] = (bySku[s.products.length] || 0) + 1;
     stats.innerHTML = '';
     const stat = (n, l) => { const d = document.createElement('div'); d.className = 'stat'; d.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`; stats.appendChild(d); };
     stat(sorted.length, 'shipments'); stat(labels, 'labels'); stat(state.pageCount, 'pages');
     stat(Object.keys(bySku).sort((a, b) => a - b).map(k => `${bySku[k]} × ${k}‑SKU`).join('<br>'), 'boxes by SKU count');
     stats.lastChild.querySelector('.n').classList.add('small');
+    if (pickups) stat(pickups, 'local pickup, no label');
     stat(flagged, flagged ? 'flagged, check by hand' : 'flagged');
 
     notes.innerHTML = '';
     const note = (cls, text) => { const d = document.createElement('div'); d.className = 'note ' + cls; d.textContent = text; notes.appendChild(d); };
     for (const w of state.warnings) note('warn', w);
-    if (!flagged && !state.warnings.length) note('good', 'Every slip’s item total matches the rows read from it, and every slip has a label page.');
+    if (!flagged && !state.warnings.length) note('good', 'Every slip’s item total matches the rows read from it, and every shipped box has a label page.' + (pickups ? ` ${pickups} local pickup slip${pickups === 1 ? '' : 's'} kept at the end.` : ''));
 
     tbody.innerHTML = '';
     let lastSig = null, lastSku = null, pos = 0;
@@ -327,9 +334,11 @@ td.user{font-family:var(--mono);font-size:13px}
       const sig = sigOf(s);
       if (sig !== lastSig) {
         const tr = document.createElement('tr'); tr.className = 'group';
-        const skuLabel = s.products.length === 1 ? '1 SKU' : `${s.products.length} SKUs`;
+        const skuLabel = s.pickup ? 'Local pickup' : (s.products.length === 1 ? '1 SKU' : `${s.products.length} SKUs`);
         const td = document.createElement('td'); td.colSpan = 7;
-        td.innerHTML = `${lastSku !== s.products.length ? `<span style="color:var(--accent)">${skuLabel}</span> · ` : ''}${esc(sig || '(no products read)')}<span class="pile">${pileSize[sig]} box${pileSize[sig] === 1 ? '' : 'es'}</span>`;
+        td.innerHTML = s.pickup
+          ? `<span style="color:var(--accent)">Local pickup</span> · slips only, no shipping label<span class="pile">${pileSize[sig]} order${pileSize[sig] === 1 ? '' : 's'}</span>`
+          : `${lastSku !== s.products.length ? `<span style="color:var(--accent)">${skuLabel}</span> · ` : ''}${esc(sig || '(no products read)')}<span class="pile">${pileSize[sig]} box${pileSize[sig] === 1 ? '' : 'es'}</span>`;
         tr.appendChild(td); tbody.appendChild(tr);
         lastSig = sig; lastSku = s.products.length;
       }
@@ -337,7 +346,7 @@ td.user{font-family:var(--mono);font-size:13px}
       const prodCell = s.items.map(it => `${it.qty}× ${esc(it.product)}`).join('<br>');
       const pagesOf = s.slipPages.concat(s.labelPage ? [s.labelPage] : []);
       const thumbs = `<div class="thumbs">${pagesOf.slice(0, 3).map(p => `<canvas class="thumb" data-page="${p}" width="66" height="99" title="Page ${p}"></canvas>`).join('')}${pagesOf.length > 3 ? `<span class="thumb more">+${pagesOf.length - 3}</span>` : ''}</div>`;
-      tr.innerHTML = `<td class="num">${pos}</td><td>${thumbs}</td><td class="user">${esc(s.user)}${s.flags.map(f => `<span class="flag">${esc(f)}</span>`).join('')}</td>` +
+      tr.innerHTML = `<td class="num">${pos}</td><td>${thumbs}</td><td class="user">${esc(s.user)}${s.pickup ? '<span class="flag pickup">pickup</span>' : ''}${s.flags.map(f => `<span class="flag">${esc(f)}</span>`).join('')}</td>` +
         `<td>${prodCell}</td><td class="num">${s.qty}</td>` +
         `<td class="num">${s.slipPages[0]}–${s.labelPage || s.slipPages[s.slipPages.length - 1]}</td>` +
         `<td class="num">${s.newPages[0]}${s.newPages[1] !== s.newPages[0] ? '–' + s.newPages[1] : ''}</td>`;
@@ -484,11 +493,12 @@ td.user{font-family:var(--mono);font-size:13px}
     }
     if (y < M + 20) newPage();
     y -= 2; page.drawLine({ start: { x: M, y: y + 9 }, end: { x: W - M, y: y + 9 }, thickness: .6, color: rgb(.6, .6, .6) });
-    page.drawText(`${total} units  ·  ${counts.length} products  ·  ${state.order.length} boxes`, { x: M, y: y - 4, size: 9, font: bold });
+    const nPick = state.order.filter(s => s.pickup).length;
+    page.drawText(`${total} units  ·  ${counts.length} products  ·  ${state.order.length - nPick} boxes` + (nPick ? `  ·  ${nPick} local pickup` : ''), { x: M, y: y - 4, size: 9, font: bold });
   }
   function buildCsv() {
-    const rows = [['position', 'customer', 'sku_count', 'products', 'items', 'original_pages', 'new_pages', 'flags']];
-    state.order.forEach((s, i) => rows.push([i + 1, s.user, s.products.length, s.items.map(it => `${it.qty}x ${it.product}`).join(' | '), s.qty,
+    const rows = [['position', 'customer', 'type', 'sku_count', 'products', 'items', 'original_pages', 'new_pages', 'flags']];
+    state.order.forEach((s, i) => rows.push([i + 1, s.user, s.pickup ? 'local pickup' : 'ship', s.products.length, s.items.map(it => `${it.qty}x ${it.product}`).join(' | '), s.qty,
       `${s.slipPages[0]}-${s.labelPage || s.slipPages[s.slipPages.length - 1]}`, `${s.newPages[0]}-${s.newPages[1]}`, s.flags.join(' | ')]));
     return rows.map(r => r.map(v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(',')).join('\n') + '\n';
   }
