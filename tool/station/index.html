@@ -76,7 +76,8 @@
   var url = "", token = "", timer = null, state = null;
 
   try {
-    url = localStorage.getItem("scope.url") || (location.protocol.startsWith("http") && !/alire\.org$/.test(location.hostname) ? location.origin : "");
+    // Served by the Station itself: the address is this page's origin. Served by the website: the user types it.
+    url = localStorage.getItem("scope.url") || (location.protocol.startsWith("http") && location.hostname !== "alire.org" ? location.origin : "");
     token = localStorage.getItem("scope.token") || "";
   } catch (e) {}
   $("url").value = url; $("token").value = token;
