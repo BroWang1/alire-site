@@ -120,9 +120,14 @@
     }).join("") : '<tr><td colspan="3" class="muted">none</td></tr>';
     var names = Object.keys(s.scenarios || {});
     $("testnote").textContent = s.test ? "" : "(off on this Station: set STATION_TEST=1 to enable)";
-    $("tests").innerHTML = names.map(function (n) {
-      return '<div class="test"><button type="button" data-run="' + n + '">Run</button><p><span class="name">' + n + '</span>' + esc(s.scenarios[n]) + '</p></div>';
-    }).join("");
+    // Rebuild the buttons only when the list changes, so a refresh never pulls a button out from under a click.
+    var key = names.join("|");
+    if ($("tests").dataset.key !== key) {
+      $("tests").dataset.key = key;
+      $("tests").innerHTML = names.map(function (n) {
+        return '<div class="test"><button type="button" data-run="' + n + '">Run</button><p><span class="name">' + n + '</span>' + esc(s.scenarios[n]) + '</p></div>';
+      }).join("");
+    }
   }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
