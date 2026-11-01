@@ -130,7 +130,7 @@
     return api("GET", "/status").then(function (s) { render(s); $("conn").textContent = "connected"; }).catch(function (e) { $("conn").textContent = ""; log("status failed: " + e.message, true); });
   }
   $("connect").addEventListener("click", function () {
-    url = $("url").value.trim(); token = $("token").value;
+    url = $("url").value.trim(); token = $("token").value.trim();
     try { localStorage.setItem("scope.url", url); localStorage.setItem("scope.token", token); } catch (e) {}
     if (timer) clearInterval(timer);
     log("connecting to " + url);
