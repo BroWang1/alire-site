@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station</title>
+<style>
+  :root { --bg:#f6f7f5; --fg:#1d2420; --muted:#5b6660; --panel:#fff; --line:#c9d0cb; --soft:#eef1ee; --ok:#0e7c66; --warn:#b8690f; --bad:#c43d3d;
+          --mono: ui-monospace, Menlo, Consolas, monospace; --body: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121715; --fg:#e4e9e6; --muted:#98a39d; --panel:#1b221f; --line:#39433e; --soft:#222a26; --ok:#3fc9a6; --warn:#e0953a; --bad:#e46262; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); font-size:15px; line-height:1.45; padding: 20px max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left)); }
+  main { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; min-width: 260px; }
+  button { font: inherit; color: inherit; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--ok); border-color: var(--ok); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .card b { display:block; font-size: 11px; letter-spacing:.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .card .v { font-size: 22px; font-variant-numeric: tabular-nums; }
+  .card.bad .v { color: var(--bad); } .card.warn .v { color: var(--warn); } .card.ok .v { color: var(--ok); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  td.k { font-family: var(--mono); white-space: nowrap; } td.n { font-variant-numeric: tabular-nums; text-align: right; }
+  .log { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 13px; white-space: pre-wrap; max-height: 360px; overflow: auto; }
+  .tests { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px; }
+  .test { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display:flex; gap: 10px; align-items: flex-start; }
+  .test p { margin: 0; font-size: 13.5px; color: var(--muted); }
+  .test .name { font-family: var(--mono); font-weight: 600; color: var(--fg); display:block; margin-bottom: 2px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .err { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+<h1>Station</h1>
+<p class="sub">Scope, first slice: what the Station is doing right now, and the scripted tests that prove it.</p>
+
+<div class="row">
+  <input id="url" placeholder="Station address, e.g. https://station.alire.org" aria-label="Station address">
+  <input id="token" type="password" placeholder="token" aria-label="Token" style="min-width:160px">
+  <button class="primary" id="connect" type="button">Connect</button>
+  <span class="muted" id="conn"></span>
+</div>
+
+<h2>Right now</h2>
+<div class="cards" id="cards"><div class="card"><b>status</b><div class="v">not connected</div></div></div>
+
+<h2>Refusals (counted, never silent)</h2>
+<div class="tbl"><table><thead><tr><th>code</th><th>meaning</th><th style="text-align:right">count</th><th>last</th></tr></thead><tbody id="refusals"><tr><td colspan="4" class="muted">—</td></tr></tbody></table></div>
+
+<h2>Alerts</h2>
+<div class="tbl"><table><thead><tr><th>when</th><th>title</th><th>body</th></tr></thead><tbody id="alerts"><tr><td colspan="3" class="muted">none</td></tr></tbody></table></div>
+
+<h2>Scripted tests <span class="muted" id="testnote"></span></h2>
+<div class="tests" id="tests"></div>
+
+<h2>Log</h2>
+<div class="log" id="log">Connect to begin.</div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var MEANING = {
+    "bad-token": "wrong or missing token", "bad-origin": "connection from a page that is not Whatnot or the extension",
+    "seller-unverified": "seller read off the screen, not the page's data", "stream-claimed": "a second seller claimed a stream already being recorded",
+    "stale": "event older than the retention window (a replayed backlog)", "duplicate": "the same event again after a redial; written once",
+    "price-held": "an impossible price; the lead was kept, the price held", "no-hello": "events before a hello", "invalid": "a frame the Contract does not recognize"
+  };
+  var $ = function (id) { return document.getElementById(id); };
+  var url = "", token = "", timer = null, state = null;
+
+  try {
+    url = localStorage.getItem("scope.url") || (location.protocol.startsWith("http") && !/alire\.org$/.test(location.hostname) ? location.origin : "");
+    token = localStorage.getItem("scope.token") || "";
+  } catch (e) {}
+  $("url").value = url; $("token").value = token;
+
+  function log(s, isErr) {
+    var el = $("log"); var line = new Date().toLocaleTimeString() + "  " + s;
+    el.textContent = (el.textContent === "Connect to begin." ? "" : el.textContent + "\n") + line;
+    if (isErr) el.classList.add("err"); else el.classList.remove("err");
+    el.scrollTop = el.scrollHeight;
+  }
+  function api(method, pathname) {
+    return fetch(url.replace(/\/$/, "") + pathname, { method: method, headers: { authorization: "Bearer " + token } }).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; });
+    });
+  }
+  function fmt(ms) { return ms ? new Date(ms).toLocaleString() : "never"; }
+  function ago(ms) { if (!ms) return "never"; var m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : Math.round(m / 60) + " h ago"; }
+
+  function render(s) {
+    state = s;
+    var silent = s.lastHelloAt ? (Date.now() - s.lastHelloAt) / 3600000 : null;
+    var cards = [
+      ["up since", fmt(s.startedAt), ""],
+      ["last hello", ago(s.lastHelloAt), silent == null ? "warn" : silent > s.silenceHours ? "bad" : "ok"],
+      ["open tracks", s.openTracks, s.openTracks ? "ok" : ""],
+      ["workers", s.workers, ""],
+      ["shows", s.rows.shows, ""], ["sales", s.rows.sales, ""], ["bids", s.rows.bids, ""],
+      ["viewer samples", s.rows.viewerSamples, ""], ["chat", s.rows.chat, ""], ["sale images", s.rows.saleImages, ""],
+      ["price holds, last hour", s.priceHoldsLastHour, s.priceHoldsLastHour ? "warn" : ""],
+      ["test endpoints", s.test ? "ON" : "off", s.test ? "warn" : ""]
+    ];
+    $("cards").innerHTML = cards.map(function (c) { return '<div class="card ' + c[2] + '"><b>' + c[0] + '</b><div class="v">' + c[1] + '</div></div>'; }).join("");
+    var codes = Object.keys(MEANING);
+    $("refusals").innerHTML = codes.map(function (k) {
+      var r = s.refusals[k] || { count: 0, lastAt: null };
+      return '<tr><td class="k">' + k + '</td><td>' + MEANING[k] + '</td><td class="n">' + r.count + '</td><td class="muted">' + ago(r.lastAt) + '</td></tr>';
+    }).join("");
+    $("alerts").innerHTML = s.alerts.length ? s.alerts.slice().reverse().map(function (a) {
+      return '<tr><td class="muted">' + fmt(a.at) + '</td><td>' + esc(a.title) + '</td><td>' + esc(a.body) + '</td></tr>';
+    }).join("") : '<tr><td colspan="3" class="muted">none</td></tr>';
+    var names = Object.keys(s.scenarios || {});
+    $("testnote").textContent = s.test ? "" : "(off on this Station: set STATION_TEST=1 to enable)";
+    $("tests").innerHTML = names.map(function (n) {
+      return '<div class="test"><button type="button" data-run="' + n + '">Run</button><p><span class="name">' + n + '</span>' + esc(s.scenarios[n]) + '</p></div>';
+    }).join("");
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  function refresh() {
+    return api("GET", "/status").then(function (s) { render(s); $("conn").textContent = "connected"; }).catch(function (e) { $("conn").textContent = ""; log("status failed: " + e.message, true); });
+  }
+  $("connect").addEventListener("click", function () {
+    url = $("url").value.trim(); token = $("token").value;
+    try { localStorage.setItem("scope.url", url); localStorage.setItem("scope.token", token); } catch (e) {}
+    if (timer) clearInterval(timer);
+    log("connecting to " + url);
+    refresh().then(function () { timer = setInterval(refresh, 5000); });
+  });
+  $("tests").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-run]"); if (!b) return;
+    var name = b.dataset.run; b.disabled = true;
+    var before = state ? JSON.stringify({ rows: state.rows, refusals: state.refusals }) : null;
+    log("running " + name + " …");
+    api("POST", "/test/" + name).then(function (r) {
+      (r.notes || []).forEach(function (n) { log("  " + n); });
+      var refused = (r.replies || []).filter(function (x) { return x.type === "refused"; });
+      if (refused.length) log("  Station replied refused: " + refused.map(function (x) { return x.code; }).join(", "));
+      render(r.status);
+      if (before) {
+        var b0 = JSON.parse(before), b1 = r.status;
+        Object.keys(b1.rows).forEach(function (k) { var d = b1.rows[k] - b0.rows[k]; if (d) log("  rows." + k + " +" + d); });
+        Object.keys(b1.refusals).forEach(function (k) { var d = b1.refusals[k].count - ((b0.refusals[k] || { count: 0 }).count); if (d) log("  refusals." + k + " +" + d); });
+      }
+      log("done: " + name);
+    }).catch(function (e) { log(name + " failed: " + e.message, true); }).then(function () { b.disabled = false; });
+  });
+  if (url && token) $("connect").click();
+})();
+</script>
+</body>
+</html>
