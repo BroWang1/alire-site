@@ -54,25 +54,31 @@ tbody tr.open td{background:var(--accent-soft)}
 .detail{border-left:3px solid var(--accent);padding:10px 14px;background:var(--bg);border-radius:0 8px 8px 0}
 .detail table{font-size:13px}
 .err{color:var(--bad)} .ok{color:var(--good)}
-.gate{max-width:420px;margin:40px auto;display:flex;flex-direction:column;gap:12px}
+.gate-bg{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
+.gate-bg[hidden]{display:none}
+.gate{width:100%;max-width:400px;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,.12)}
+.gate h1{font-size:20px}
 footer{color:var(--muted);font-size:13px}
 @media (max-width:640px){ .row .btn{flex:1 1 auto} }
 </style>
 </head>
 <body>
 <div class="stack">
-  <header class="row">
+  <header class="row" id="pageHead" hidden>
     <div class="grow"><h1>Chuku Data</h1><p class="muted">Every packing slip dropped into the Label Sorter, kept for good.</p></div>
     <div id="who" class="row" hidden><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
   </header>
 
-  <section class="panel gate" id="gate">
-    <h2>Sign in</h2>
-    <p class="muted">Internal page. Enter your email and we send a one-time sign-in link.</p>
-    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
-    <button class="btn primary" id="sendLink">Send sign-in link</button>
-    <p id="gateMsg" class="muted"></p>
-  </section>
+  <div class="gate-bg" id="gate" role="dialog" aria-label="Sign in">
+    <section class="panel gate">
+      <h1>Chuku Data</h1>
+      <h2>Sign in</h2>
+      <p class="muted">Internal page. Enter your email and we send a one-time sign-in link.</p>
+      <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+      <button class="btn primary" id="sendLink">Send sign-in link</button>
+      <p id="gateMsg" class="muted"></p>
+    </section>
+  </div>
 
   <main id="app" hidden class="stack">
     <section class="panel row" aria-label="Filters">
@@ -133,6 +139,7 @@ footer{color:var(--muted);font-size:13px}
     $('gateMsg').className = error ? 'err' : 'ok';
     $('sendLink').disabled = false;
   });
+  $('email').addEventListener('keydown', e => { if (e.key === 'Enter') $('sendLink').click(); });
   $('signOut').addEventListener('click', async () => { await sb.auth.signOut(); location.reload(); });
 
   sb.auth.onAuthStateChange((_evt, session) => { if (session) start(session); });
@@ -147,7 +154,7 @@ footer{color:var(--muted);font-size:13px}
       $('gateMsg').textContent = `${session.user.email} is signed in but not on the allowed list. Ask the owner to add it in Supabase (allowed_users).`;
       $('gateMsg').className = 'err'; $('sendLink').hidden = true; $('email').hidden = true; return;
     }
-    $('gate').hidden = true; $('app').hidden = false;
+    $('gate').hidden = true; $('app').hidden = false; $('pageHead').hidden = false;
     setRange(30); await load();
   }
 
