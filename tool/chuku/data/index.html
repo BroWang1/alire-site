@@ -56,10 +56,6 @@ tbody tr.open td{background:var(--accent-soft)}
 .detail{border-left:3px solid var(--accent);padding:10px 14px;background:var(--bg);border-radius:0 8px 8px 0}
 .detail table{font-size:13px}
 .err{color:var(--bad)} .ok{color:var(--good)}
-.gate-bg{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
-.gate-bg[hidden]{display:none}
-.gate{width:100%;max-width:400px;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,.12)}
-.gate h1{font-size:20px}
 footer{color:var(--muted);font-size:13px}
 .chart-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .chart-wrap{position:relative}
@@ -91,23 +87,13 @@ footer{color:var(--muted);font-size:13px}
 </head>
 <body>
 <div class="stack">
-  <header class="row" id="pageHead" hidden>
+  <header class="row" id="pageHead" data-chuku-app>
     <div class="grow"><h1>Chuku Data</h1><p class="muted">Every packing slip dropped into the Label Sorter, kept for good.</p></div>
     <div id="who" class="row" hidden><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
   </header>
 
-  <div class="gate-bg" id="gate" role="dialog" aria-label="Sign in">
-    <section class="panel gate">
-      <h1>Chuku Data</h1>
-      <h2>Sign in</h2>
-      <p class="muted">Internal page. Enter your email and we send a one-time sign-in link.</p>
-      <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
-      <button class="btn primary" id="sendLink">Send sign-in link</button>
-      <p id="gateMsg" class="muted"></p>
-    </section>
-  </div>
 
-  <main id="app" hidden class="stack">
+  <main id="app" data-chuku-app class="stack">
     <section class="panel row" aria-label="Filters">
       <label>From <input type="date" id="from"></label>
       <label>To <input type="date" id="to"></label>
@@ -152,50 +138,23 @@ footer{color:var(--muted);font-size:13px}
 
 <script src="/tool/chuku-config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="/tool/chuku/gate.js"></script>
 <script>
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const cfg = window.CHUKU || {};
-  if (!cfg.url || !cfg.key) { $('gateMsg').textContent = 'This page is not connected to a data store yet (chuku-config.js is empty).'; $('gateMsg').className = 'err'; return; }
-  const sb = supabase.createClient(cfg.url, cfg.key);
+  const sb = window.ChukuGate && window.ChukuGate.sb;
+  if (!sb) return;
 
   const money = c => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
   const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const iso = d => d.toISOString().slice(0, 10);
 
-  const logEvent = (kind, detail, email_hint) => sb.rpc('log_event', { kind, detail: detail || null, agent: navigator.userAgent.slice(0, 200), email_hint: email_hint || null }).then(() => {}, () => {});
-
-  // ---------- auth ----------
-  $('sendLink').addEventListener('click', async () => {
-    const email = $('email').value.trim();
-    if (!email) return;
-    $('sendLink').disabled = true; $('gateMsg').textContent = 'Sending…';
-    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
-    logEvent('signin_request', { ok: !error, error: error ? error.message : null }, email);
-    $('gateMsg').textContent = error ? 'Could not send: ' + error.message : 'Check your email and open the link on this device.';
-    $('gateMsg').className = error ? 'err' : 'ok';
-    $('sendLink').disabled = false;
-  });
-  $('email').addEventListener('keydown', e => { if (e.key === 'Enter') $('sendLink').click(); });
-  $('signOut').addEventListener('click', async () => { await sb.auth.signOut(); location.reload(); });
-
-  sb.auth.onAuthStateChange((_evt, session) => { if (session) start(session); });
-  sb.auth.getSession().then(({ data }) => { if (data.session) start(data.session); });
-
-  let started = false;
-  async function start(session) {
-    if (started) return; started = true;
-    $('whoEmail').textContent = session.user.email; $('who').hidden = false;
-    const { data: allowed, error } = await sb.rpc('is_allowed');
-    logEvent('signin', { allowed: !!allowed && !error });
-    if (error || !allowed) {
-      $('gateMsg').textContent = `${session.user.email} is signed in but not on the allowed list. Ask the owner to add it in Supabase (allowed_users).`;
-      $('gateMsg').className = 'err'; $('sendLink').hidden = true; $('email').hidden = true; return;
-    }
-    $('gate').hidden = true; $('app').hidden = false; $('pageHead').hidden = false;
+  $('signOut').addEventListener('click', () => window.ChukuGate.signOut());
+  window.ChukuGate.ready(async ({ email }) => {
+    $('whoEmail').textContent = email; $('who').hidden = false;
     setRange(30); await load();
-  }
+  });
 
   // ---------- data ----------
   let items = [], batches = [], events = [], tab = 'day', sortKey = null, sortAsc = false, openKey = null;
@@ -370,7 +329,7 @@ footer{color:var(--muted);font-size:13px}
   function fitRangeLabels() { const small = innerWidth <= 640; document.querySelectorAll('#ranges button').forEach(b => { b.textContent = RANGE_LABELS[b.dataset.range][small ? 1 : 0]; }); }
   fitRangeLabels(); window.addEventListener('resize', fitRangeLabels);
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => items.length && drawChart(filtered()), 150); });
-  window.chukuDebug = { show(list, evs) { items = list; events = evs || []; $('gate').hidden = true; $('app').hidden = false; $('pageHead').hidden = false; render(); } };
+  window.chukuDebug = { show(list, evs) { items = list; events = evs || []; window.ChukuGate._debugOpen(); render(); } };
 
   // ---------- wiring ----------
   $('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; tab = b.dataset.tab; sortKey = null; sortAsc = false; openKey = null; document.querySelectorAll('#tabs .btn').forEach(x => x.classList.toggle('on', x === b)); render(); });

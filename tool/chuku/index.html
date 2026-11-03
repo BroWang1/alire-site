@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Chuku</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#f2f4f6;--panel:#ffffff;--fg:#17202b;--muted:#5c6b7a;--line:#d3dae2;--line-strong:#aab5c1;--accent:#0d6b70;--accent-ink:#ffffff;--accent-soft:#dff0f0;--good:#1f7a46;--bad:#b3261e;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color-scheme:light}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){--bg:#121821;--panel:#1a222d;--fg:#e7ecf1;--muted:#97a5b4;--line:#2b3643;--line-strong:#43515f;--accent:#4fb6bb;--accent-ink:#0b1a1b;--accent-soft:#15353a;--good:#5fc48a;--bad:#f28b82;color-scheme:dark} }
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;padding-block:24px 48px;padding-inline:max(16px,calc(50% - 480px))}
+h1{font-size:24px;font-weight:600;margin:0} p{margin:0} .muted{color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center} .grow{flex:1 1 200px}
+.btn{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--fg);font:inherit;font-weight:500;padding:8px 13px;border-radius:8px;cursor:pointer}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:20px}
+.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;color:inherit;text-decoration:none}
+.card:hover{border-color:var(--accent)} .card h2{font-size:16px;margin:0 0 4px} .card.soon{opacity:.55;pointer-events:none}
+.pill{display:inline-block;font-size:12px;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px}
+</style>
+</head>
+<body>
+<header class="row" data-chuku-app>
+  <div class="grow"><h1>Chuku</h1><p class="muted">Internal tools for Whatnot shipping and sales.</p></div>
+  <div class="row"><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
+</header>
+<main data-chuku-app>
+  <div class="cards">
+    <a class="card" href="/tool/chuku/data/"><h2>Data</h2><p class="muted">Revenue, products, buyers, shipments, activity.</p></a>
+    <a class="card soon" href="/tool/chuku/order-management/"><h2>Order management<span class="pill">soon</span></h2><p class="muted">Every shipment and its Whatnot status.</p></a>
+    <a class="card soon" href="/tool/chuku/keys/"><h2>Keys<span class="pill">soon</span></h2><p class="muted">Shop tokens, daily label email, ignored buyers.</p></a>
+    <a class="card" href="/tool/label-sorter/"><h2>Label Sorter</h2><p class="muted">Public tool. Drop a PDF, get it sorted.</p></a>
+  </div>
+</main>
+<script src="/tool/chuku-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="/tool/chuku/gate.js"></script>
+<script>
+  document.getElementById('signOut').addEventListener('click', () => ChukuGate.signOut());
+  ChukuGate.ready(({ email }) => { document.getElementById('whoEmail').textContent = email; });
+</script>
+</body>
+</html>
