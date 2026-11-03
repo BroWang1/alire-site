@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Chuku Data</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sign-in gate, then a filter bar, four tiles, tabbed tables with a drill-down panel. Same slate-and-teal as the sorter. */
+:root{
+  --bg:#f2f4f6; --panel:#ffffff; --fg:#17202b; --muted:#5c6b7a; --line:#d3dae2; --line-strong:#aab5c1;
+  --accent:#0d6b70; --accent-ink:#ffffff; --accent-soft:#dff0f0; --good:#1f7a46; --warn:#9a5b00; --bad:#b3261e; --bad-soft:#fde8e6;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#121821; --panel:#1a222d; --fg:#e7ecf1; --muted:#97a5b4; --line:#2b3643; --line-strong:#43515f;
+  --accent:#4fb6bb; --accent-ink:#0b1a1b; --accent-soft:#15353a; --good:#5fc48a; --warn:#e3a84a; --bad:#f28b82; --bad-soft:#3d1c19; color-scheme:dark } }
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;padding-block:24px 48px;padding-inline:max(16px,calc(50% - 600px))}
+h1{font-size:24px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:13px;font-weight:600;margin:0;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0}
+.stack{display:flex;flex-direction:column;gap:18px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.row>.grow{flex:1 1 200px;min-width:0}
+.btn{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--fg);font:inherit;font-weight:500;padding:8px 13px;border-radius:8px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--fg)}
+.btn:disabled{opacity:.5;cursor:default}
+input,select{font:inherit;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);color:var(--fg);min-width:0}
+input:focus-visible,select:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.muted{color:var(--muted)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.tile{padding:12px 14px;border:1px solid var(--line);border-radius:8px}
+.tile .n{font-family:var(--mono);font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+.tile .l{color:var(--muted);font-size:13px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;background:var(--bg);position:sticky;top:0;cursor:pointer;user-select:none}
+th.sorted::after{content:" ▾";color:var(--accent)} th.sorted.asc::after{content:" ▴"}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+td.wrap{white-space:normal;min-width:220px}
+tbody tr{cursor:pointer} tbody tr:hover td{background:var(--accent-soft)}
+tbody tr.open td{background:var(--accent-soft)}
+.pill{display:inline-block;font-size:12px;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.pill.pickup{background:var(--bad-soft);color:var(--bad)}
+.detail{border-left:3px solid var(--accent);padding:10px 14px;background:var(--bg);border-radius:0 8px 8px 0}
+.detail table{font-size:13px}
+.err{color:var(--bad)} .ok{color:var(--good)}
+.gate{max-width:420px;margin:40px auto;display:flex;flex-direction:column;gap:12px}
+footer{color:var(--muted);font-size:13px}
+@media (max-width:640px){ .row .btn{flex:1 1 auto} }
+</style>
+</head>
+<body>
+<div class="stack">
+  <header class="row">
+    <div class="grow"><h1>Chuku Data</h1><p class="muted">Every packing slip dropped into the Label Sorter, kept for good.</p></div>
+    <div id="who" class="row" hidden><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
+  </header>
+
+  <section class="panel gate" id="gate">
+    <h2>Sign in</h2>
+    <p class="muted">Internal page. Enter your email and we send a one-time sign-in link.</p>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+    <button class="btn primary" id="sendLink">Send sign-in link</button>
+    <p id="gateMsg" class="muted"></p>
+  </section>
+
+  <main id="app" hidden class="stack">
+    <section class="panel row" aria-label="Filters">
+      <label>From <input type="date" id="from"></label>
+      <label>To <input type="date" id="to"></label>
+      <select id="shop"><option value="">All shops</option></select>
+      <div class="row">
+        <button class="btn" data-range="7">7 days</button><button class="btn" data-range="30">30 days</button><button class="btn" data-range="90">90 days</button><button class="btn" data-range="all">All time</button>
+      </div>
+      <span class="grow"></span>
+      <input type="search" id="q" placeholder="Search buyer, tracking, order #, product" style="flex:1 1 260px">
+      <button class="btn" id="reload">Refresh</button>
+    </section>
+
+    <section class="tiles" id="tiles"></section>
+
+    <section class="panel stack">
+      <div class="row">
+        <div class="tabs" id="tabs">
+          <button class="btn on" data-tab="day">By day</button>
+          <button class="btn" data-tab="product">By product</button>
+          <button class="btn" data-tab="buyer">By buyer</button>
+          <button class="btn" data-tab="shop">By shop</button>
+          <button class="btn" data-tab="shipment">Shipments</button>
+          <button class="btn" data-tab="batch">Batches</button>
+        </div>
+        <span class="grow"></span>
+        <button class="btn" id="csv">Export CSV</button>
+      </div>
+      <p class="muted" id="count"></p>
+      <div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div>
+    </section>
+    <footer id="foot"></footer>
+  </main>
+</div>
+
+<script src="/tool/chuku-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const cfg = window.CHUKU || {};
+  if (!cfg.url || !cfg.key) { $('gateMsg').textContent = 'This page is not connected to a data store yet (chuku-config.js is empty).'; $('gateMsg').className = 'err'; return; }
+  const sb = supabase.createClient(cfg.url, cfg.key);
+
+  const money = c => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+  const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const iso = d => d.toISOString().slice(0, 10);
+
+  // ---------- auth ----------
+  $('sendLink').addEventListener('click', async () => {
+    const email = $('email').value.trim();
+    if (!email) return;
+    $('sendLink').disabled = true; $('gateMsg').textContent = 'Sending…';
+    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+    $('gateMsg').textContent = error ? 'Could not send: ' + error.message : 'Check your email and open the link on this device.';
+    $('gateMsg').className = error ? 'err' : 'ok';
+    $('sendLink').disabled = false;
+  });
+  $('signOut').addEventListener('click', async () => { await sb.auth.signOut(); location.reload(); });
+
+  sb.auth.onAuthStateChange((_evt, session) => { if (session) start(session); });
+  sb.auth.getSession().then(({ data }) => { if (data.session) start(data.session); });
+
+  let started = false;
+  async function start(session) {
+    if (started) return; started = true;
+    $('whoEmail').textContent = session.user.email; $('who').hidden = false;
+    const { data: allowed, error } = await sb.rpc('is_allowed');
+    if (error || !allowed) {
+      $('gateMsg').textContent = `${session.user.email} is signed in but not on the allowed list. Ask the owner to add it in Supabase (allowed_users).`;
+      $('gateMsg').className = 'err'; $('sendLink').hidden = true; $('email').hidden = true; return;
+    }
+    $('gate').hidden = true; $('app').hidden = false;
+    setRange(30); await load();
+  }
+
+  // ---------- data ----------
+  let items = [], batches = [], tab = 'day', sortKey = null, sortAsc = false, openKey = null;
+  function setRange(days) {
+    const to = new Date(); const from = new Date();
+    if (days === 'all') { $('from').value = ''; $('to').value = ''; return; }
+    from.setDate(to.getDate() - (days - 1));
+    $('from').value = iso(from); $('to').value = iso(to);
+  }
+  async function fetchAll(query) {
+    const out = []; const step = 1000;
+    for (let i = 0; ; i += step) {
+      const { data, error } = await query.range(i, i + step - 1);
+      if (error) throw error;
+      out.push(...data);
+      if (data.length < step) break;
+    }
+    return out;
+  }
+  async function load() {
+    $('count').textContent = 'Loading…';
+    try {
+      let q = sb.from('items').select('order_number, product, lot, qty, price_cents, order_date, buyer, shop, shipment_id, shipments(tracking, pickup, show_title, total_cents, item_count, carrier, weight_oz, batch_id)').order('order_date', { ascending: false });
+      if ($('from').value) q = q.gte('order_date', $('from').value);
+      if ($('to').value) q = q.lte('order_date', $('to').value);
+      if ($('shop').value) q = q.eq('shop', $('shop').value);
+      items = await fetchAll(q);
+      batches = await fetchAll(sb.from('batches').select('*').order('dropped_at', { ascending: false }));
+      const shops = [...new Set(items.map(i => i.shop).concat(batches.map(b => b.shop)))].sort();
+      const sel = $('shop'); const cur = sel.value;
+      sel.innerHTML = '<option value="">All shops</option>' + shops.map(s => `<option${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
+      render();
+    } catch (e) { $('count').textContent = 'Could not load: ' + (e.message || e); $('count').className = 'err'; }
+  }
+
+  // ---------- aggregation ----------
+  const filtered = () => {
+    const q = $('q').value.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(i => (i.buyer || '').toLowerCase().includes(q) || (i.order_number || '').includes(q) || (i.product || '').toLowerCase().includes(q) || ((i.shipments && i.shipments.tracking) || '').includes(q));
+  };
+  function groupBy(list, keyFn, extra) {
+    const m = new Map();
+    for (const i of list) {
+      const k = keyFn(i); if (k === null || k === undefined) continue;
+      let g = m.get(k); if (!g) { g = { key: k, units: 0, revenue: 0, orders: 0, ships: new Set(), buyers: new Set() }; m.set(k, g); if (extra) extra(g, i); }
+      g.units += i.qty || 0; g.revenue += i.price_cents || 0; g.orders++; g.ships.add(i.shipment_id); g.buyers.add(i.buyer);
+    }
+    return [...m.values()].map(g => ({ ...g, shipments: g.ships.size, buyers: g.buyers.size }));
+  }
+  const TABS = {
+    day:      { cols: [['key','Date'],['shipments','Shipments','num'],['buyers','Buyers','num'],['units','Units','num'],['revenue','Revenue','money']], rows: l => groupBy(l, i => i.order_date), defaultSort: 'key' },
+    product:  { cols: [['key','Product','wrap'],['orders','Orders','num'],['units','Units','num'],['revenue','Revenue','money'],['avg','Avg price','money']], rows: l => groupBy(l, i => i.product).map(g => ({ ...g, avg: g.orders ? Math.round(g.revenue / g.units || 0) : 0 })), defaultSort: 'revenue' },
+    buyer:    { cols: [['key','Buyer'],['shipments','Shipments','num'],['units','Units','num'],['revenue','Revenue','money'],['first','First','date'],['last','Last','date']], rows: l => groupBy(l, i => i.buyer, (g, i) => { g.first = i.order_date; g.last = i.order_date; }).map(g => { const ds = l.filter(i => i.buyer === g.key).map(i => i.order_date).sort(); return { ...g, first: ds[0], last: ds[ds.length - 1] }; }), defaultSort: 'revenue' },
+    shop:     { cols: [['key','Shop'],['shipments','Shipments','num'],['buyers','Buyers','num'],['units','Units','num'],['revenue','Revenue','money']], rows: l => groupBy(l, i => i.shop), defaultSort: 'revenue' },
+    shipment: { cols: [['order_date','Date','date'],['buyer','Buyer'],['type','Type'],['item_count','Items','num'],['total','Total','money'],['tracking','Tracking'],['show','Show','wrap']],
+                rows: l => { const m = new Map(); for (const i of l) { if (!m.has(i.shipment_id)) m.set(i.shipment_id, { key: i.shipment_id, order_date: i.order_date, buyer: i.buyer, type: i.shipments?.pickup ? 'pickup' : 'ship', item_count: i.shipments?.item_count, total: i.shipments?.total_cents ?? 0, tracking: i.shipments?.tracking || '', show: i.shipments?.show_title || '' }); } return [...m.values()]; }, defaultSort: 'order_date' },
+    batch:    { cols: [['dropped_at','Dropped','datetime'],['shop','Shop'],['file_name','File','wrap'],['page_count','Pages','num'],['shipment_count','Shipments','num'],['item_count','Items','num'],['total_cents','Total','money']], rows: () => batches.map(b => ({ ...b, key: b.id })), defaultSort: 'dropped_at' },
+  };
+
+  // ---------- render ----------
+  function render() {
+    const list = filtered();
+    const t = TABS[tab];
+    let rows = t.rows(list);
+    if (!sortKey) sortKey = t.defaultSort;
+    rows.sort((a, b) => { const x = a[sortKey], y = b[sortKey]; const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '').localeCompare(String(y ?? '')); return sortAsc ? c : -c; });
+
+    // tiles for the filtered set
+    const rev = list.reduce((a, i) => a + (i.price_cents || 0), 0), units = list.reduce((a, i) => a + (i.qty || 0), 0);
+    const ships = new Set(list.map(i => i.shipment_id)).size, buyers = new Set(list.map(i => i.buyer)).size;
+    $('tiles').innerHTML = [[money(rev), 'revenue (gross sale prices)'], [ships, 'shipments'], [units, 'units'], [buyers, 'buyers']]
+      .map(([n, l]) => `<div class="tile"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+    const thead = $('table').querySelector('thead'), tbody = $('table').querySelector('tbody');
+    thead.innerHTML = '<tr>' + t.cols.map(([k, label, kind]) => `<th data-k="${k}" class="${kind === 'num' || kind === 'money' ? 'num' : ''} ${sortKey === k ? 'sorted' + (sortAsc ? ' asc' : '') : ''}">${label}</th>`).join('') + '</tr>';
+    const fmt = (v, kind) => kind === 'money' ? money(v || 0) : kind === 'datetime' ? new Date(v).toLocaleString() : esc(v);
+    tbody.innerHTML = rows.map(r => `<tr data-key="${esc(r.key)}" class="${String(r.key) === String(openKey) ? 'open' : ''}">` + t.cols.map(([k, , kind]) => `<td class="${kind === 'num' || kind === 'money' ? 'num' : kind === 'wrap' ? 'wrap' : ''}">${k === 'type' ? `<span class="pill ${r.type}">${r.type}</span>` : fmt(r[k], kind)}</td>`).join('') + '</tr>').join('');
+    $('count').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} · ${list.length} item rows loaded${$('q').value ? ' · filtered by search' : ''}`; $('count').className = 'muted';
+    if (openKey !== null) showDetail(openKey, list);
+    $('foot').textContent = 'Revenue is the sum of item sale prices on the slips. Shipping paid by buyers and Whatnot fees are not on slips and not included.';
+    currentRows = rows;
+  }
+  let currentRows = [];
+
+  // drill-down: which items make up the clicked row
+  function showDetail(key, list) {
+    document.querySelectorAll('tr.detailrow').forEach(e => e.remove());
+    const tr = [...$('table').querySelectorAll('tbody tr')].find(e => e.dataset.key === String(key));
+    if (!tr) return;
+    let sub;
+    if (tab === 'day') sub = list.filter(i => i.order_date === key);
+    else if (tab === 'product') sub = list.filter(i => i.product === key);
+    else if (tab === 'buyer') sub = list.filter(i => i.buyer === key);
+    else if (tab === 'shop') sub = list.filter(i => i.shop === key);
+    else if (tab === 'shipment') sub = list.filter(i => String(i.shipment_id) === String(key));
+    else sub = items.filter(i => String(i.shipments?.batch_id) === String(key));
+    sub = sub.slice().sort((a, b) => (a.buyer || '').localeCompare(b.buyer || '') || (a.product || '').localeCompare(b.product || ''));
+    const d = document.createElement('tr'); d.className = 'detailrow';
+    d.innerHTML = `<td colspan="${TABS[tab].cols.length}" style="white-space:normal"><div class="detail"><div class="tablewrap"><table><thead><tr><th>Date</th><th>Buyer</th><th>Product</th><th class="num">Lot</th><th class="num">Qty</th><th class="num">Price</th><th>Order #</th><th>Tracking</th></tr></thead><tbody>`
+      + sub.slice(0, 500).map(i => `<tr><td>${esc(i.order_date)}</td><td>${esc(i.buyer)}</td><td class="wrap">${esc(i.product)}</td><td class="num">${i.lot ?? ''}</td><td class="num">${i.qty}</td><td class="num">${money(i.price_cents)}</td><td>${esc(i.order_number)}</td><td>${esc(i.shipments?.tracking || (i.shipments?.pickup ? 'local pickup' : ''))}</td></tr>`).join('')
+      + `</tbody></table></div>${sub.length > 500 ? `<p class="muted">Showing 500 of ${sub.length}.</p>` : ''}</div></td>`;
+    tr.after(d);
+  }
+
+  // ---------- wiring ----------
+  $('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; tab = b.dataset.tab; sortKey = null; sortAsc = false; openKey = null; document.querySelectorAll('#tabs .btn').forEach(x => x.classList.toggle('on', x === b)); render(); });
+  $('table').addEventListener('click', e => {
+    const th = e.target.closest('th[data-k]'); if (th) { if (sortKey === th.dataset.k) sortAsc = !sortAsc; else { sortKey = th.dataset.k; sortAsc = false; } render(); return; }
+    const tr = e.target.closest('tbody tr[data-key]'); if (tr) { openKey = openKey === tr.dataset.key ? null : tr.dataset.key; render(); }
+  });
+  document.querySelectorAll('[data-range]').forEach(b => b.addEventListener('click', () => { setRange(b.dataset.range === 'all' ? 'all' : parseInt(b.dataset.range, 10)); load(); }));
+  ['from', 'to', 'shop'].forEach(id => $(id).addEventListener('change', load));
+  $('reload').addEventListener('click', load);
+  let qt; $('q').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(() => { openKey = null; render(); }, 200); });
+  $('csv').addEventListener('click', () => {
+    const t = TABS[tab];
+    const lines = [t.cols.map(c => c[1]).join(',')].concat(currentRows.map(r => t.cols.map(([k, , kind]) => { let v = r[k]; if (kind === 'money') v = ((v || 0) / 100).toFixed(2); v = String(v ?? ''); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }).join(',')));
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `chuku-${tab}-${iso(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove();
+  });
+})();
+</script>
+</body>
+</html>
