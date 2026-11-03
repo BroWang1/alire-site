@@ -83,23 +83,24 @@ Deno.serve(async (req) => {
 
   if (action === "list") {
     // Walk newest-first until shipments are older than `since` or we hit max_pages (50 per page).
+    // The page calls this repeatedly with the returned next_cursor until stopped_by is "since" or "end",
+    // so there is no ceiling on how many shipments a busy shop can have in the window.
     const since = body.since ? new Date(String(body.since)).getTime() : Date.now() - 30 * 864e5;
     const maxPages = Math.min(Math.max(Number(body.max_pages) || 6, 1), 12);
-    const out: any[] = []; let cursor = ""; let pages = 0; let stoppedBy = "end";
+    const out: any[] = []; let cursor = String(body.cursor ?? ""); let pages = 0; let stoppedBy = "end"; let oldestSeen = Infinity;
     while (pages < maxPages) {
       const r = await wn(token, `/shipments?limit=50${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`);
       if (r.status === 401) { await admin.from("shop_keys").update({ status: "invalid", last_http_status: 401, last_checked_at: new Date().toISOString() }).eq("id", key.id); return json(502, { error: "Whatnot rejected the stored token (401). Replace it on the keys page." }); }
       if (r.status !== 200) return json(502, { error: `Whatnot answered ${r.status}`, partial: out });
       pages++;
       const data: any[] = r.body?.data ?? [];
-      for (const s of data) out.push(slim(s));
-      const oldest = data.length ? new Date(data[data.length - 1].created_at).getTime() : 0;
+      for (const s of data) { out.push(slim(s)); const t = s.created_at ? new Date(s.created_at).getTime() : Infinity; if (t < oldestSeen) oldestSeen = t; }
       cursor = r.body?.next_cursor ?? "";
       if (!cursor) { stoppedBy = "end"; break; }
-      if (oldest < since) { stoppedBy = "since"; break; }
-      await sleep(120);
+      if (oldestSeen < since) { stoppedBy = "since"; break; }
+      stoppedBy = "more";
+      await sleep(80);
     }
-    if (pages >= maxPages && cursor) stoppedBy = "max_pages";
     // Attach cached contents (sku/unit counts, items) where the cache is still current.
     const ids = out.map((s) => s.id);
     const cache = new Map<string, any>();
@@ -112,7 +113,7 @@ Deno.serve(async (req) => {
       if (c && sameTime(c.updated_at, s.updated_at) && c.status === s.status) { s.contents = { orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count }; }
     }
     await admin.from("shop_keys").update({ last_sync_at: new Date().toISOString() }).eq("id", key.id);
-    return json(200, { shipments: out, pages, stopped_by: stoppedBy, ignored_buyers: key.ignored_buyers ?? [], fetched_at: new Date().toISOString(), cached: out.filter((s) => s.contents).length });
+    return json(200, { shipments: out, pages, stopped_by: stoppedBy, next_cursor: stoppedBy === "more" ? cursor : null, oldest_seen: isFinite(oldestSeen) ? new Date(oldestSeen).toISOString() : null, ignored_buyers: key.ignored_buyers ?? [], fetched_at: new Date().toISOString(), cached: out.filter((s) => s.contents).length });
   }
 
   // Contents of one or more shipments. Fetched from Whatnot once, then cached per (shop, shipment, updated_at).

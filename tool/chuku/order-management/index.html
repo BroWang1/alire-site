@@ -91,7 +91,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
       <div class="row">
         <label class="row" style="gap:6px">Shop <select id="shop"></select></label>
         <div class="row" style="gap:6px"><span class="muted small">Dates</span>
-          <button class="chip" data-range="today">Today</button><button class="chip" data-range="yesterday">Yesterday</button><button class="chip" data-range="week">This week</button><button class="chip" data-range="month">This month</button><button class="chip on" data-range="all">Last 30 days</button>
+          <button class="chip on" data-range="today">Today</button><button class="chip" data-range="yesterday">Yesterday</button><button class="chip" data-range="week">This week</button><button class="chip" data-range="month">This month</button><button class="chip" data-range="all">Last 30 days</button>
         </div>
         <div class="row" style="gap:6px"><input type="date" id="from" aria-label="From"><span class="muted">to</span><input type="date" id="to" aria-label="To"></div>
         <input type="search" id="q" placeholder="Search buyer, item, tracking" style="flex:1 1 180px">
@@ -130,7 +130,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   // ---- state ----
   let session = null, shops = [], shop = '', ignored = new Set();
   let ships = [];            // slimmed shipments from the function, with .contents once known
-  let chip = 'all', range = 'all', from = '', to = '', q = '';
+  let chip = 'all', range = 'today', from = '', to = '', q = '';
   const open = new Set();    // expanded shipment ids
   let contentsRun = 0;
 
@@ -226,7 +226,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   const titlesOf = c => { const out = []; for (const o of c.orders) for (const it of o.items) out.push((it.qty > 1 ? it.qty + '× ' : '') + it.title); return out; };
   function itemsCell(s) {
     const c = s.contents;
-    if (!c) return `<span class="n unk">…</span><span class="muted small">loading contents</span>`;
+    if (!c) return `<span class="n unk">…</span><span class="muted small">${s.unread ? 'not answered yet' : 'loading contents'}</span>`;
     const titles = titlesOf(c);
     const shown = titles.slice(0, 2).map(t => `<span class="t">${esc(t)}</span>`).join('');
     const more = titles.length > 2 ? `<span class="t more">+${titles.length - 2} more</span>` : '';
@@ -261,13 +261,13 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   function cardHtml(s) {
     const cls = ['card', isIgnored(s) ? 'ignored' : '', isOverdue(s) ? 'overdue' : ''].join(' ');
     const c = s.contents;
-    const summary = c ? `<span class="n ${c.sku_count === 1 ? 'one' : ''}">${c.sku_count}</span>${c.unit_count} unit${c.unit_count === 1 ? '' : 's'}: ${esc(titlesOf(c).slice(0, 3).join(', '))}${titlesOf(c).length > 3 ? '…' : ''}` : '<span class="muted">loading contents…</span>';
+    const summary = c ? `<span class="n ${c.sku_count === 1 ? 'one' : ''}">${c.sku_count}</span>${c.unit_count} unit${c.unit_count === 1 ? '' : 's'}: ${esc(titlesOf(c).slice(0, 3).join(', '))}${titlesOf(c).length > 3 ? '…' : ''}` : `<span class="muted">${s.unread ? 'not answered yet' : 'loading contents…'}</span>`;
     return `<div class="${cls}" data-id="${esc(s.id)}"><div class="top"><b>${esc(s.buyer || '—')}${isIgnored(s) ? ' <span class="pill grey">ignored</span>' : ''}</b>${statusPill(s)}</div><div class="mid small">${summary}</div><div class="bot">${s.dropoff_due ? `<span class="due">due ${esc(dayKey(s.dropoff_due).slice(5))}</span>` : ''}${s.tracking ? `<span class="mono">${esc(s.tracking.slice(-8))}</span>` : ''}<span>${s.created_at ? esc(timeFmt.format(new Date(s.created_at))) : ''}</span></div>${open.has(s.id) ? detail(s) : ''}</div>`;
   }
   function renderDays() {
     const vis = visible();
     if (!shop) { $('days').innerHTML = '<div class="panel empty">Pick a shop.</div>'; return; }
-    if (!vis.length) { $('days').innerHTML = `<div class="panel empty">${ships.length ? 'Nothing matches these filters.' : 'No shipments loaded.'}</div>`; return; }
+    if (!vis.length) { $('days').innerHTML = `<div class="panel empty">${ships.length ? 'No boxes match these dates and filters.' : 'No shipments loaded.'}</div>`; return; }
     const byDay = new Map();
     for (const s of vis) { const k = dayKey(s.created_at); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(s); }
     const keys = [...byDay.keys()].sort().reverse();
@@ -287,13 +287,13 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 
   // ---- events ----
   document.addEventListener('click', e => {
-    const t = e.target.closest('[data-chip]'); if (t) { chip = t.dataset.chip; render(); return; }
-    const r = e.target.closest('[data-range]'); if (r) { range = r.dataset.range; from = to = ''; $('from').value = $('to').value = ''; document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('on', b === r)); render(); return; }
+    const t = e.target.closest('[data-chip]'); if (t) { chip = t.dataset.chip; render(); pumpContents(); return; }
+    const r = e.target.closest('[data-range]'); if (r) { range = r.dataset.range; from = to = ''; $('from').value = $('to').value = ''; document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('on', b === r)); render(); pumpContents(); return; }
     const lb = e.target.closest('[data-label]'); if (lb) { e.stopPropagation(); openLabel(lb.dataset.label, lb); return; }
     if (e.target.closest('a')) return;
     const row = e.target.closest('tr.ship, .card'); if (row && !e.target.closest('.det')) { const id = row.dataset.id; if (open.has(id)) open.delete(id); else open.add(id); renderDays(); }
   });
-  const onDate = () => { from = $('from').value; to = $('to').value; range = (from || to) ? 'custom' : 'all'; document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('on', range === 'all' && b.dataset.range === 'all')); render(); };
+  const onDate = () => { from = $('from').value; to = $('to').value; range = (from || to) ? 'custom' : 'all'; document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('on', range === 'all' && b.dataset.range === 'all')); render(); pumpContents(); };
   $('from').addEventListener('change', onDate); $('to').addEventListener('change', onDate);
   $('q').addEventListener('input', () => { q = $('q').value.trim(); render(); });
   $('shop').addEventListener('change', () => { shop = $('shop').value; try { localStorage.setItem('chuku.om.shop', shop); } catch (_) {} load(); });
@@ -307,76 +307,81 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
     return j;
   }
   const say = (text, bad) => { $('msg').textContent = text; $('msg').className = 'msg grow' + (bad ? ' err' : ''); };
-  // ---- checkpoint loader (slim strip; hides itself when done) ----
+  // ---- loader strip: who / shops once, then two jobs (list, contents) that may run at the same time ----
   const ld = (() => {
-    const LABEL = { who: 'Checking who you are', shops: 'Finding your shops', list: 'Asking Whatnot for the last 30 days', contents: 'Reading what is in each box' };
+    const LABEL = { who: 'Checking who you are', shops: 'Finding your shops', list: 'Asking Whatnot', contents: 'Reading what is in each box' };
     const SHORT = { who: 'you', shops: 'shops', list: 'list', contents: 'contents' };
     const ORDER = ['who', 'shops', 'list', 'contents'];
-    let t0 = 0, clock = null; const done = new Set(); let cur = null, sub = '';
+    let t0 = 0, clock = null; const active = new Map(); const done = new Set(); let failed = null;
     const tick = () => { $('ldClock').textContent = Math.round((Date.now() - t0) / 1000) + 's'; };
     const draw = () => {
-      $('ldNow').innerHTML = cur ? `<b>${esc(LABEL[cur])}</b>${sub ? ' · ' + esc(sub) : ''}` : '';
-      $('ldTicks').innerHTML = ORDER.filter(n => done.has(n)).map(n => `<span>${SHORT[n]}</span>`).join('');
+      const parts = ORDER.filter(n => active.has(n)).map(n => `<b>${esc(LABEL[n])}</b>${active.get(n) ? ' · ' + esc(active.get(n)) : ''}`);
+      $('ldNow').innerHTML = failed ? `<b>${esc(LABEL[failed.name])}</b> · ${esc(failed.text)}` : parts.join(' &nbsp;|&nbsp; ');
+      $('ldTicks').innerHTML = ORDER.filter(n => done.has(n) && !active.has(n)).map(n => `<span>${SHORT[n]}</span>`).join('');
+      const idle = !active.size && !failed;
+      if (idle) { clearInterval(clock); clock = null; t0 = 0; $('loader').hidden = true; $('ldBar').hidden = true; }
+      else { if (!t0) t0 = Date.now(); if (!clock) clock = setInterval(tick, 500); tick(); $('loader').hidden = false; $('loader').classList.toggle('error', !!failed); }
     };
     return {
-      start(fromStep) {
-        t0 = t0 || Date.now(); if (!clock) clock = setInterval(tick, 500); tick();
-        $('loader').hidden = false; $('loader').classList.remove('error'); $('ldBar').hidden = true;
-        let seen = false; for (const n of ORDER) { if (n === fromStep) seen = true; if (seen) done.delete(n); }
-        cur = null; sub = ''; draw();
-      },
-      restart() { t0 = Date.now(); this.start('list'); },
-      step(name, text) { cur = name; sub = text || ''; draw(); },
-      sub(name, text) { if (cur === name) { sub = text || ''; draw(); } },
-      bar(name, frac) { $('ldBar').hidden = false; $('ldBar').firstElementChild.style.width = Math.round(frac * 100) + '%'; },
-      done(name) { done.add(name); if (cur === name) { cur = null; sub = ''; } draw(); },
-      fail(name, text) { cur = name; sub = text || 'failed'; $('loader').classList.add('error'); clearInterval(clock); clock = null; draw(); },
-      finish() { clearInterval(clock); clock = null; t0 = 0; if (!$('loader').classList.contains('error')) { $('loader').hidden = true; $('ldBar').hidden = true; } },
+      set(name, text) { failed = null; active.set(name, text || ''); draw(); },
+      done(name) { active.delete(name); done.add(name); draw(); },
+      clear(name) { active.delete(name); done.delete(name); draw(); },
+      bar(frac) { if (frac == null) { $('ldBar').hidden = true; return; } $('ldBar').hidden = false; $('ldBar').firstElementChild.style.width = Math.round(frac * 100) + '%'; },
+      fail(name, text) { active.delete(name); failed = { name, text: text || 'failed' }; draw(); },
     };
   })();
+  const SINCE_DAYS = 30; let listRun = 0;
   async function load() {
     if (!shop) return;
-    contentsRun++; ships = []; open.clear(); render();
+    listRun++; const run = listRun; contentsRun++;
+    ships = []; open.clear(); render();
     say(''); $('reload').disabled = true; $('stamp').textContent = '';
-    ld.restart(); ld.step('list', `@${shop} · one call per 50 boxes, usually 2 to 6 seconds`);
+    ld.clear('list'); ld.clear('contents'); ld.set('list', `@${shop} · last ${SINCE_DAYS} days`);
+    const since = new Date(Date.now() - SINCE_DAYS * 864e5).toISOString();
+    let cursor = null, chunks = 0, oldest = null, pagesTotal = 0;
     try {
-      const since = new Date(Date.now() - 30 * 864e5).toISOString();
-      const j = await call({ action: 'list', since, max_pages: 12 });
-      ignored = new Set((j.ignored_buyers || []).map(x => x.toLowerCase()));
-      ships = (j.shipments || []).filter(s => new Date(s.created_at || 0).getTime() >= Date.parse(since) - 864e5);
-      $('stamp').textContent = `Whatnot answered ${new Date(j.fetched_at).toLocaleTimeString()} · ${ships.length} shipments${j.stopped_by === 'max_pages' ? ' (cut off at ' + j.pages * 50 + ')' : ''}`;
-      ld.done('list', `${ships.length} boxes in ${j.pages} page${j.pages === 1 ? '' : 's'}, ${j.cached || 0} already known`);
-      render();
-      loadContents();
-    } catch (err) { say(err.message, true); ld.fail('list', err.message); }
-    finally { $('reload').disabled = false; }
+      do {
+        const j = await call({ action: 'list', since, cursor, max_pages: 4 });
+        if (run !== listRun) return;
+        ignored = new Set((j.ignored_buyers || []).map(x => x.toLowerCase()));
+        for (const s of j.shipments || []) if (new Date(s.created_at || 0).getTime() >= Date.parse(since) - 864e5) ships.push(s);
+        cursor = j.next_cursor || null; chunks++; pagesTotal += j.pages || 0; oldest = j.oldest_seen || oldest;
+        $('stamp').textContent = `${ships.length} boxes${oldest ? ' back to ' + niceDay(dayKey(oldest)) : ''} · Whatnot answered ${new Date(j.fetched_at).toLocaleTimeString()}`;
+        ld.set('list', `${ships.length} boxes so far${oldest ? ', back to ' + niceDay(dayKey(oldest)) : ''}`);
+        render();
+        pumpContents();
+        if (chunks >= 25) { say(`Stopped after ${ships.length} boxes. Narrow the dates if you need older ones.`); break; }
+      } while (cursor);
+      ld.done('list');
+      pumpContents();
+    } catch (err) { if (run === listRun) { say(err.message, true); ld.fail('list', err.message); } }
+    finally { if (run === listRun) $('reload').disabled = false; }
   }
-  // Contents (what is in the box) come in batches of 15, newest first; the server caches each one.
-  async function loadContents() {
-    const run = contentsRun; const todo = ships.filter(s => !s.contents).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-    const total = todo.length;
-    if (!total) { ld.done('contents', ships.length ? 'all boxes already known' : 'nothing to read'); ld.finish(`Done. ${ships.length} boxes, all from cache.`); return; }
-    const base = $('stamp').textContent; const t0 = Date.now();
-    ld.step('contents', `0 of ${total} · about 3 calls per box, 5 boxes at a time`); ld.bar('contents', 0);
-    let done = 0, failed = 0;
-    while (todo.length && run === contentsRun) {
-      const batch = todo.splice(0, 15);
-      try {
-        const j = await call({ action: 'items_bulk', shipments: batch.map(s => ({ id: s.id, updated_at: s.updated_at, status: s.status })) });
-        if (run !== contentsRun) return;
-        for (const s of batch) { const c = j.contents && j.contents[s.id]; if (c) s.contents = { orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count }; else failed++; }
-      } catch (err) { if (run !== contentsRun) return; failed += batch.length; say('Contents: ' + err.message, true); }
-      done += batch.length;
-      const secs = (Date.now() - t0) / 1000, eta = done ? Math.max(0, Math.round(secs / done * (total - done))) : 0;
-      ld.sub('contents', `${done} of ${total}${todo.length ? ` · about ${eta}s left` : ''}${failed ? ` · ${failed} not answered` : ''}`); ld.bar('contents', done / total);
-      $('stamp').textContent = `${base} · contents ${done}/${total}`;
-      render();
-    }
-    if (run === contentsRun) {
-      $('stamp').textContent = base;
-      if (failed) ld.fail('contents', `${done - failed} read, ${failed} boxes not answered by Whatnot. Refresh to retry them.`); else ld.done('contents', `${done} boxes read`);
-      ld.finish(failed ? 'Finished with gaps.' : `Done in ${Math.round((Date.now() - t0) / 1000)}s. Next time these boxes come from the cache.`);
-    }
+  // Contents (what is in each box) only for the boxes currently in view, newest first, 15 per call.
+  // Re-entered whenever the view changes; the server caches every box it reads.
+  let pumping = false, pumpAgain = false;
+  async function pumpContents() {
+    if (pumping) { pumpAgain = true; return; }
+    pumping = true; const run = contentsRun; const t0 = Date.now(); let read = 0, failed = 0, started = 0;
+    try {
+      while (run === contentsRun) {
+        pumpAgain = false;
+        const todo = visible().filter(s => !s.contents && !s.unread).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+        if (!todo.length) break;
+        if (!started) started = todo.length + read;
+        const total = Math.max(started, todo.length + read);
+        const secs = (Date.now() - t0) / 1000, eta = read ? Math.round(secs / read * todo.length) : null;
+        ld.set('contents', `${read} of ${total} in view${eta != null ? ` · about ${eta}s left` : ''}${failed ? ` · ${failed} not answered` : ''}`); ld.bar(read / total);
+        const batch = todo.slice(0, 15);
+        try {
+          const j = await call({ action: 'items_bulk', shipments: batch.map(s => ({ id: s.id, updated_at: s.updated_at, status: s.status })) });
+          if (run !== contentsRun) return;
+          for (const s of batch) { const c = j.contents && j.contents[s.id]; if (c) { s.contents = { orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count }; read++; } else { s.contents = null; s.unread = true; failed++; } }
+        } catch (err) { if (run !== contentsRun) return; failed += batch.length; for (const s of batch) s.unread = true; say('Contents: ' + err.message, true); }
+        render();
+      }
+      if (run === contentsRun) { if (failed) ld.fail('contents', `${failed} boxes not answered by Whatnot, press Refresh to retry`); else ld.done('contents'); ld.bar(null); }
+    } finally { pumping = false; if (pumpAgain && run === contentsRun) pumpContents(); }
   }
   async function openLabel(id, btn) {
     const old = btn.textContent; btn.disabled = true; btn.textContent = 'Fetching…';
@@ -390,20 +395,20 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   }
 
   async function loadShops() {
-    ld.step('shops');
+    ld.set('shops');
     const { data, error } = await sb.from('shop_keys').select('shop, status, shops(display_name)').is('removed_at', null).order('shop');
     if (error) { say(error.message, true); ld.fail('shops', error.message); return; }
     shops = data || [];
-    ld.done('shops', shops.length ? shops.map(k => '@' + k.shop).join(', ') : 'none yet');
+    ld.done('shops');
     $('shop').innerHTML = shops.length ? shops.map(k => `<option value="${esc(k.shop)}">@${esc(k.shop)}${k.shops && k.shops.display_name ? ' (' + esc(k.shops.display_name) + ')' : ''}${k.status !== 'ok' ? ' — key ' + esc(k.status) : ''}</option>`).join('') : '<option value="">No shop keys yet</option>';
     let saved = null; try { saved = localStorage.getItem('chuku.om.shop'); } catch (_) {}
     shop = shops.some(k => k.shop === saved) ? saved : (shops[0] ? shops[0].shop : '');
     $('shop').value = shop;
-    if (!shop) { $('days').innerHTML = '<div class="panel empty">Add a shop token on the <a href="/tool/chuku/keys/">Keys</a> page first.</div>'; ld.finish(); return; }
+    if (!shop) { $('days').innerHTML = '<div class="panel empty">Add a shop token on the <a href="/tool/chuku/keys/">Keys</a> page first.</div>'; return; }
     load();
   }
 
-  window.ChukuGate.ready(ctx => { session = ctx.session; $('whoEmail').textContent = ctx.email; sb.auth.onAuthStateChange((_e, s) => { if (s) session = s; }); ld.start('who'); ld.done('who', ctx.email); loadShops(); });
+  window.ChukuGate.ready(ctx => { session = ctx.session; $('whoEmail').textContent = ctx.email; sb.auth.onAuthStateChange((_e, s) => { if (s) session = s; }); ld.set('who'); ld.done('who'); loadShops(); });
 })();
 </script>
 </body>
