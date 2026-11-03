@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Chuku Keys</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: nav row, an "add a shop" card, then one card per shop key with its settings. Same slate-and-teal as the other chuku pages. */
+:root{
+  --bg:#f2f4f6; --panel:#ffffff; --fg:#17202b; --muted:#5c6b7a; --line:#d3dae2; --line-strong:#aab5c1;
+  --accent:#0d6b70; --accent-ink:#ffffff; --accent-soft:#dff0f0; --good:#1f7a46; --good-soft:#e3f3e8; --warn:#9a5b00; --warn-soft:#fff3dc; --bad:#b3261e; --bad-soft:#fde8e6;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#121821; --panel:#1a222d; --fg:#e7ecf1; --muted:#97a5b4; --line:#2b3643; --line-strong:#43515f;
+  --accent:#4fb6bb; --accent-ink:#0b1a1b; --accent-soft:#15353a; --good:#5fc48a; --good-soft:#15301f; --warn:#e3a84a; --warn-soft:#3a2d12; --bad:#f28b82; --bad-soft:#3d1c19; color-scheme:dark } }
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;padding-block:24px 48px;padding-inline:max(16px,calc(50% - 520px))}
+h1{font-size:24px;font-weight:600;margin:0} h2{font-size:13px;font-weight:600;margin:0;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+h3{font-size:17px;font-weight:600;margin:0}
+p{margin:0} .muted{color:var(--muted)} .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.stack{display:flex;flex-direction:column;gap:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center} .grow{flex:1 1 200px;min-width:0}
+.nav a{color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:8px} .nav a.on{background:var(--accent-soft);color:var(--accent)} .nav a:hover{color:var(--fg)}
+.btn{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--fg);font:inherit;font-weight:500;padding:8px 13px;border-radius:8px;cursor:pointer}
+.btn:hover{border-color:var(--accent)} .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)} .btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:default}
+input,select{font:inherit;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);color:var(--fg);min-width:0;width:100%}
+input[type=checkbox]{width:auto} label.inline{display:flex;gap:8px;align-items:center}
+.field{display:flex;flex-direction:column;gap:4px} .field span{font-size:13px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.scopes{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px 14px;font-size:14px}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
+.msg{font-size:14px;min-height:1.4em} .err{color:var(--bad)} .ok{color:var(--good)}
+.key{border-left:4px solid var(--accent)} .key.invalid{border-left-color:var(--bad)} .key.unreachable{border-left-color:var(--warn)}
+details summary{cursor:pointer;color:var(--muted);font-size:14px}
+.switch{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px}
+.switch input{width:20px;height:20px}
+@media (max-width:640px){ .row .btn{flex:1 1 auto} }
+</style>
+</head>
+<body>
+<div class="stack">
+  <header class="row" data-chuku-app>
+    <div class="grow"><h1>Chuku Keys</h1><p class="muted">Shop tokens, daily label email, ignored buyers.</p></div>
+    <nav class="nav row"><a href="/tool/chuku/data/">Data</a><a class="on" href="/tool/chuku/keys/">Keys</a><a href="/tool/chuku/order-management/">Orders</a></nav>
+    <div class="row"><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
+  </header>
+
+  <main data-chuku-app class="stack">
+    <section class="panel stack" id="addBox">
+      <div class="row"><h2 class="grow">Add a shop</h2><button class="btn" id="toggleAdd">Show</button></div>
+      <div id="addForm" class="stack" hidden>
+        <p class="muted">The shop owner creates a personal access token in their Whatnot dashboard (Developer, Tokens) and gives it to you. Paste it once. It is checked against Whatnot, the shop name is read from it, and it is stored encrypted on the server. It is never shown again.</p>
+        <div class="grid">
+          <div class="field"><span>Token (starts with wn_pat_tk_)</span><input type="password" id="token" autocomplete="off" placeholder="wn_pat_tk_…"></div>
+          <div class="field"><span>Expires on (optional, as chosen in Whatnot)</span><input type="date" id="expires"></div>
+        </div>
+        <div class="field"><span>Permissions ticked when the token was created</span>
+          <div class="scopes" id="scopes"></div>
+        </div>
+        <div class="row"><button class="btn primary" id="addBtn">Validate and store</button><span class="msg" id="addMsg"></span></div>
+      </div>
+    </section>
+
+    <section class="stack" id="keys"><p class="muted">Loading…</p></section>
+  </main>
+</div>
+
+<script src="/tool/chuku-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="/tool/chuku/gate.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const sb = window.ChukuGate && window.ChukuGate.sb; if (!sb) return;
+  const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const SCOPES = ['read:orders', 'read:shipments', 'read:customers', 'write:shipments', 'read:shows', 'read:reports', 'write:reports', 'read:inventory', 'write:inventory', 'read:merchandising', 'write:merchandising', 'write:orders'];
+  const NEEDED = ['read:orders', 'read:shipments', 'read:customers', 'write:shipments'];
+  const fmtWhen = v => v ? new Date(v).toLocaleString() : 'never';
+  const fmtDate = v => v ? String(v).slice(0, 10) : 'no expiry';
+
+  $('scopes').innerHTML = SCOPES.map(s => `<label class="inline"><input type="checkbox" value="${s}" ${NEEDED.includes(s) ? 'checked' : ''}> ${s}${NEEDED.includes(s) ? ' <span class="muted">(needed)</span>' : ''}</label>`).join('');
+  $('toggleAdd').addEventListener('click', () => { const f = $('addForm'); f.hidden = !f.hidden; $('toggleAdd').textContent = f.hidden ? 'Show' : 'Hide'; });
+  $('signOut').addEventListener('click', () => window.ChukuGate.signOut());
+
+  async function call(body) {
+    const { data, error } = await sb.functions.invoke('chuku-keys', { body });
+    if (error) {
+      let detail = error.message;
+      try { const r = error.context && (await error.context.json()); if (r && r.error) detail = r.error; } catch {}
+      throw new Error(detail);
+    }
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  }
+
+  // ---------- add ----------
+  $('addBtn').addEventListener('click', async () => {
+    const token = $('token').value.trim(); if (!token) { $('addMsg').textContent = 'Paste the token first.'; $('addMsg').className = 'msg err'; return; }
+    const scopes = [...document.querySelectorAll('#scopes input:checked')].map(i => i.value);
+    $('addBtn').disabled = true; $('addMsg').textContent = 'Checking with Whatnot…'; $('addMsg').className = 'msg';
+    try {
+      const r = await call({ action: 'add', token, scopes, expires_at: $('expires').value || null });
+      $('token').value = '';
+      $('addMsg').textContent = `Stored. Shop @${r.shop}${r.display_name ? ' (' + r.display_name + ')' : ''}.`; $('addMsg').className = 'msg ok';
+      await load();
+    } catch (e) { $('addMsg').textContent = e.message; $('addMsg').className = 'msg err'; }
+    $('addBtn').disabled = false;
+  });
+
+  // ---------- list ----------
+  let keys = [];
+  async function load() {
+    const { data, error } = await sb.from('shop_keys').select('*, shops(display_name, whatnot_user_id, tz, seller_currency)').is('removed_at', null).order('added_at');
+    if (error) { $('keys').innerHTML = `<p class="err">Could not load keys: ${esc(error.message)}</p>`; return; }
+    keys = data || [];
+    if (!keys.length) { $('keys').innerHTML = '<section class="panel"><p class="muted">No shops connected yet. Add the first one above.</p></section>'; $('addForm').hidden = false; $('toggleAdd').textContent = 'Hide'; return; }
+    $('keys').innerHTML = keys.map(card).join('');
+  }
+  function probePills(p) {
+    if (!p) return '<span class="pill warn">not probed</span>';
+    const ok = v => v === 200;
+    return [
+      `<span class="pill ${ok(p.orders) ? 'good' : 'bad'}">orders ${p.orders}</span>`,
+      `<span class="pill ${ok(p.shipments) ? 'good' : 'bad'}">shipments ${p.shipments}</span>`,
+      `<span class="pill ${p.customers === 'yes' ? 'good' : p.customers === 'null' ? 'bad' : 'warn'}">customers ${p.customers}</span>`,
+      `<span class="pill ${p.documents === 'yes' ? 'good' : 'warn'}">documents ${p.documents}</span>`,
+      `<span class="pill warn">write:shipments unverified until first label</span>`,
+    ].join(' ');
+  }
+  function card(k) {
+    const sh = k.shops || {};
+    const statusPill = k.status === 'ok' ? '<span class="pill good">ok</span>' : k.status === 'invalid' ? '<span class="pill bad">invalid, needs a new token</span>' : `<span class="pill warn">${esc(k.status)}</span>`;
+    const exp = k.expires_at ? (new Date(k.expires_at) < new Date() ? '<span class="pill bad">expired ' + fmtDate(k.expires_at) + '</span>' : (new Date(k.expires_at) - Date.now() < 7 * 864e5 ? '<span class="pill warn">expires ' + fmtDate(k.expires_at) + '</span>' : 'expires ' + fmtDate(k.expires_at))) : 'no expiry set';
+    const missing = NEEDED.filter(s => !(k.scopes || []).includes(s));
+    return `<section class="panel stack key ${esc(k.status)}" data-id="${k.id}">
+      <div class="row">
+        <div class="grow"><h3>${esc(sh.display_name || '@' + k.shop)} <span class="muted mono">@${esc(k.shop)}</span></h3>
+          <p class="muted">Token <span class="mono">wn_pat_tk_${esc(k.token_hint || '…')}</span> · ${exp} · added by ${esc(k.added_by || '?')} ${fmtWhen(k.added_at).slice(0, 10)}</p></div>
+        <div>${statusPill}</div>
+      </div>
+      <div class="row">${probePills(k.probe)}</div>
+      ${missing.length ? `<p class="err">Missing permissions for the daily labels: ${missing.join(', ')}. Make a new token with them and use Replace.</p>` : ''}
+      <p class="muted">Last checked ${fmtWhen(k.last_checked_at)}${k.last_error ? ' · ' + esc(k.last_error) : ''} · last sync ${fmtWhen(k.last_sync_at)}</p>
+
+      <div class="switch"><input type="checkbox" class="auto" ${k.automation_on ? 'checked' : ''} id="auto${k.id}"><label for="auto${k.id}"><b>Daily labels email</b> <span class="muted">every day at the send time below, in ${esc(sh.tz || 'America/Los_Angeles')}. The daily run itself is being built; this switch is saved now and takes effect when it ships.</span></label></div>
+      <div class="grid">
+        <div class="field"><span>Email the PDF to (comma separated)</span><input class="recipients" value="${esc((k.recipients || []).join(', '))}"></div>
+        <div class="field"><span>Ignore these buyers (usernames, comma separated)</span><input class="ignored" value="${esc((k.ignored_buyers || []).join(', '))}"></div>
+        <div class="field"><span>Send time</span><input type="time" class="sendtime" value="${esc((k.send_time || '06:00').slice(0, 5))}"></div>
+        <div class="field"><span>Max labels per run</span><input type="number" class="maxlabels" min="1" max="1000" value="${k.max_labels_per_run || 150}"></div>
+      </div>
+      <label class="inline"><input type="checkbox" class="older" ${k.include_older ? 'checked' : ''}> Also include older boxes that still have no label, in a separate section</label>
+      <div class="row">
+        <button class="btn primary save">Save settings</button>
+        <button class="btn check">Check token now</button>
+        <button class="btn replace">Replace token</button>
+        <button class="btn danger remove">Remove</button>
+        <span class="msg" data-msg></span>
+      </div>
+      <details><summary>Replace token</summary>
+        <div class="row" style="margin-top:8px"><input type="password" class="newtoken grow" placeholder="new wn_pat_tk_… for @${esc(k.shop)}" autocomplete="off"><button class="btn doReplace">Store new token</button></div>
+      </details>
+    </section>`;
+  }
+
+  $('keys').addEventListener('click', async e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const sec = btn.closest('section.key'); const id = Number(sec.dataset.id); const msg = sec.querySelector('[data-msg]');
+    const say = (t, cls) => { msg.textContent = t; msg.className = 'msg ' + (cls || ''); };
+    const split = v => v.split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      if (btn.classList.contains('save')) {
+        say('Saving…');
+        const { error } = await sb.rpc('set_key_settings', { p_key_id: id, p_automation_on: sec.querySelector('.auto').checked, p_recipients: split(sec.querySelector('.recipients').value), p_ignored_buyers: split(sec.querySelector('.ignored').value), p_send_time: sec.querySelector('.sendtime').value || null, p_max_labels: Number(sec.querySelector('.maxlabels').value) || null, p_include_older: sec.querySelector('.older').checked });
+        if (error) throw new Error(error.message);
+        say('Saved.', 'ok');
+      } else if (btn.classList.contains('check')) {
+        btn.disabled = true; say('Checking with Whatnot…');
+        const r = await call({ action: 'check', key_id: id });
+        say(r.status === 'ok' ? 'Token works.' : `Token ${r.status} (HTTP ${r.http}).`, r.status === 'ok' ? 'ok' : 'err');
+        await load();
+      } else if (btn.classList.contains('replace')) {
+        sec.querySelector('details').open = true; sec.querySelector('.newtoken').focus();
+      } else if (btn.classList.contains('doReplace')) {
+        const token = sec.querySelector('.newtoken').value.trim(); if (!token) { say('Paste the new token first.', 'err'); return; }
+        btn.disabled = true; say('Checking with Whatnot…');
+        await call({ action: 'replace', key_id: id, token });
+        say('Token replaced.', 'ok'); await load();
+      } else if (btn.classList.contains('remove')) {
+        if (!sec.querySelector('.confirmRemove')) {
+          msg.innerHTML = 'Remove this shop\'s token from our server? Its stored data stays. <button class="btn danger confirmRemove">Yes, remove</button>'; return;
+        }
+      } else if (btn.classList.contains('confirmRemove')) {
+        btn.disabled = true; say('Removing…');
+        await call({ action: 'remove', key_id: id });
+        await load();
+      }
+    } catch (err) { say(err.message, 'err'); }
+    finally { btn.disabled = false; }
+  });
+
+  window.ChukuGate.ready(({ email }) => { $('whoEmail').textContent = email; load(); });
+})();
+</script>
+</body>
+</html>
