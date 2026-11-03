@@ -76,7 +76,7 @@ footer{color:var(--muted);font-size:13px}
 .seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
 .seg button{appearance:none;border:0;background:var(--panel);color:var(--fg);font:inherit;padding:6px 11px;cursor:pointer}
 .seg button.on{background:var(--accent);color:var(--accent-ink)}
-@media (max-width:640px){ .row .btn{flex:1 1 auto} }
+@media (max-width:640px){ .row .btn{flex:1 1 auto} .seg{flex-wrap:wrap} .chart-head .grow{display:none} }
 </style>
 </head>
 <body>
@@ -102,9 +102,6 @@ footer{color:var(--muted);font-size:13px}
       <label>From <input type="date" id="from"></label>
       <label>To <input type="date" id="to"></label>
       <select id="shop"><option value="">All shops</option></select>
-      <div class="row">
-        <button class="btn" data-range="3">3 days</button><button class="btn" data-range="7">1 week</button><button class="btn" data-range="30">1 month</button><button class="btn" data-range="182">6 months</button><button class="btn" data-range="all">All time</button>
-      </div>
       <span class="grow"></span>
       <input type="search" id="q" placeholder="Search buyer, tracking, order #, product" style="flex:1 1 260px">
       <button class="btn" id="reload">Refresh</button>
@@ -116,6 +113,7 @@ footer{color:var(--muted);font-size:13px}
       <div class="chart-head">
         <h2 id="chartTitle">Revenue by day</h2>
         <span class="grow"></span>
+        <div class="seg" id="ranges"><button data-range="3">3 days</button><button data-range="7">1 week</button><button class="on" data-range="30">1 month</button><button data-range="182">6 months</button><button data-range="all">All time</button></div>
         <div class="seg" id="metric"><button class="on" data-m="revenue">Revenue</button><button data-m="units">Units</button><button data-m="shipments">Shipments</button></div>
       </div>
       <div class="chart-wrap" id="chart"><div class="tip" id="tip" hidden></div></div>
@@ -187,6 +185,7 @@ footer{color:var(--muted);font-size:13px}
   // ---------- data ----------
   let items = [], batches = [], tab = 'day', sortKey = null, sortAsc = false, openKey = null;
   function setRange(days) {
+    document.querySelectorAll('#ranges button').forEach(b => b.classList.toggle('on', b.dataset.range === String(days)));
     const to = new Date(); const from = new Date();
     if (days === 'all') { $('from').value = ''; $('to').value = ''; return; }
     from.setDate(to.getDate() - (days - 1));
@@ -354,7 +353,8 @@ footer{color:var(--muted);font-size:13px}
     const tr = e.target.closest('tbody tr[data-key]'); if (tr) { openKey = openKey === tr.dataset.key ? null : tr.dataset.key; render(); }
   });
   document.querySelectorAll('[data-range]').forEach(b => b.addEventListener('click', () => { setRange(b.dataset.range === 'all' ? 'all' : parseInt(b.dataset.range, 10)); load(); }));
-  ['from', 'to', 'shop'].forEach(id => $(id).addEventListener('change', load));
+  ['from', 'to'].forEach(id => $(id).addEventListener('change', () => { document.querySelectorAll('#ranges button').forEach(b => b.classList.remove('on')); load(); }));
+  $('shop').addEventListener('change', load);
   $('reload').addEventListener('click', load);
   let qt; $('q').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(() => { openKey = null; render(); }, 200); });
   $('csv').addEventListener('click', () => {
