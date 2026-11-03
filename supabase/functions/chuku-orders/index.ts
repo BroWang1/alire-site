@@ -41,7 +41,6 @@ async function fetchContents(token: string, sid: string) {
       items: (oi.body?.data ?? []).filter((it: any) => !it.shipment_id || String(it.shipment_id) === sid)
         .map((it: any) => ({ id: it.id, title: it.purchased_item?.title ?? "", qty: it.quantity ?? 1, price_cents: money(it.unit_price) })),
     });
-    await sleep(60);
   }
   const titles = new Set<string>(); let units = 0;
   for (const o of orders) for (const it of o.items) { titles.add(it.title.trim().toLowerCase()); units += it.qty || 0; }
@@ -131,12 +130,19 @@ Deno.serve(async (req) => {
       if (c && (!w.updated_at || (sameTime(c.updated_at, w.updated_at) && c.status === w.status))) results[w.id] = { orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count, cached: true };
       else todo.push(w);
     }
+    // Five boxes at a time: each box is ~3 Whatnot calls, so this stays under the 10 req/s limit.
     let failed = 0;
-    for (const w of todo) {
-      const c = await fetchContents(token, w.id);
-      if (!c) { failed++; continue; }
-      results[w.id] = c;
-      await admin.from("wn_shipment_cache").upsert({ shop, shipment_id: w.id, updated_at: w.updated_at ?? null, status: w.status ?? null, orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count, fetched_at: new Date().toISOString() }, { onConflict: "shop,shipment_id" });
+    for (let i = 0; i < todo.length; i += 5) {
+      const group = todo.slice(i, i + 5);
+      const got = await Promise.all(group.map((w) => fetchContents(token, w.id)));
+      const rows: any[] = [];
+      group.forEach((w, k) => {
+        const c = got[k];
+        if (!c) { failed++; return; }
+        results[w.id] = c;
+        rows.push({ shop, shipment_id: w.id, updated_at: w.updated_at ?? null, status: w.status ?? null, orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count, fetched_at: new Date().toISOString() });
+      });
+      if (rows.length) await admin.from("wn_shipment_cache").upsert(rows, { onConflict: "shop,shipment_id" });
     }
     if (action === "items") { const r = results[want[0].id]; return r ? json(200, { shipment_id: want[0].id, ...r }) : json(502, { error: "Whatnot did not answer for this shipment" }); }
     return json(200, { contents: results, fetched: todo.length - failed, failed });
