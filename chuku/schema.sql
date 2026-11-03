@@ -70,7 +70,7 @@ begin
   if payload->>'shop' is null or jsonb_typeof(payload->'shipments') <> 'array' then
     raise exception 'payload needs shop and shipments[]';
   end if;
-  select md5(string_agg(x, ',' order by x)) into fp
+  select md5(string_agg(x #>> '{}', ',' order by x #>> '{}')) into fp
     from jsonb_path_query(payload, '$.shipments[*].items[*].order_number') as x;
   if fp is null then raise exception 'no order numbers in payload'; end if;
 
