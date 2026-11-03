@@ -56,18 +56,17 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 .ignored td:not(.actions){opacity:.55} .overdue .due{color:var(--bad);font-weight:600}
 .msg{font-size:14px;min-height:1.4em} .err{color:var(--bad)} .prog{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .prog i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .empty{padding:28px;text-align:center;color:var(--muted)}
-/* Checkpoint loader: shows each stage of a load so a long first open never looks frozen. */
-.loader{display:flex;flex-direction:column;gap:10px}
-.loader .steps{display:flex;flex-direction:column;gap:8px}
-.step{display:flex;gap:12px;align-items:flex-start;color:var(--muted)}
-.step .ic{flex:0 0 22px;width:22px;height:22px;border-radius:50%;border:2px solid var(--line-strong);display:grid;place-items:center;font-size:12px;font-weight:600;box-sizing:border-box;margin-top:1px}
-.step.active{color:var(--fg)} .step.active .ic{border-color:var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
-.step.done .ic{background:var(--good);border-color:var(--good);color:#fff} .step.done .ic::before{content:"✓"}
-.step.error .ic{background:var(--bad);border-color:var(--bad);color:#fff} .step.error .ic::before{content:"!"} .step.error{color:var(--bad)}
-.step .body{flex:1;min-width:0} .step .lbl{font-weight:500} .step .sub{font-size:13px;color:var(--muted)}
-.step .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:6px} .step .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+/* Checkpoint loader: one slim strip under the controls. Finished checkpoints collapse to ticks; it hides itself as soon as the load is done. */
+.loader{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent-soft) 40%,var(--panel))}
+.loader .line{display:flex;gap:10px;align-items:center;font-size:14px;min-width:0}
+.loader .spin{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
+.loader.error .spin{animation:none;border:0;background:var(--bad);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center} .loader.error .spin::before{content:"!"}
+.loader .now{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .loader .now b{font-weight:500} .loader.error .now{color:var(--bad)}
+.loader .ticks{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)} .loader .ticks span{white-space:nowrap} .loader .ticks span::before{content:"✓ ";color:var(--good);font-weight:700}
+.loader .clock{flex:0 0 auto;font-size:12px;color:var(--muted)}
+.loader .bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .loader .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 @keyframes spin{to{transform:rotate(360deg)}}
-.loader .foot{font-size:13px;color:var(--muted)}
+@media (max-width:760px){ .loader .ticks{display:none} .loader .now{white-space:normal} .loader .line{align-items:flex-start} .loader .spin{margin-top:3px} }
 .cards{display:none}
 @media (max-width:760px){
   table{display:none} .cards{display:block}
@@ -98,19 +97,14 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
         <input type="search" id="q" placeholder="Search buyer, item, tracking" style="flex:1 1 180px">
         <button class="btn" id="reload">Refresh</button>
       </div>
+      <div class="loader" id="loader" hidden>
+        <div class="line"><span class="spin"></span><span class="now" id="ldNow"></span><span class="ticks" id="ldTicks"></span><span class="clock mono" id="ldClock">0s</span></div>
+        <div class="bar" id="ldBar" hidden><i></i></div>
+      </div>
       <div class="row"><span class="msg grow" id="msg"></span><span class="muted small" id="stamp"></span></div>
     </section>
 
-    <section class="panel loader" id="loader" hidden>
-      <div class="row"><h2 class="grow">Loading</h2><span class="muted small mono" id="ldClock">0s</span></div>
-      <div class="steps">
-        <div class="step" data-step="who"><span class="ic"></span><div class="body"><div class="lbl">Checking who you are</div><div class="sub"></div></div></div>
-        <div class="step" data-step="shops"><span class="ic"></span><div class="body"><div class="lbl">Finding your shops</div><div class="sub"></div></div></div>
-        <div class="step" data-step="list"><span class="ic"></span><div class="body"><div class="lbl">Asking Whatnot for the last 30 days</div><div class="sub"></div></div></div>
-        <div class="step" data-step="contents"><span class="ic"></span><div class="body"><div class="lbl">Reading what is in each box</div><div class="sub"></div><div class="bar" hidden><i></i></div></div></div>
-      </div>
-      <div class="foot" id="ldFoot">Boxes appear below as soon as the list arrives; the contents fill in after, fewest-items-first sorting settles when they are done.</div>
-    </section>
+
 
     <section class="tiles" id="tiles"></section>
 
@@ -313,25 +307,31 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
     return j;
   }
   const say = (text, bad) => { $('msg').textContent = text; $('msg').className = 'msg grow' + (bad ? ' err' : ''); };
-  // ---- checkpoint loader ----
+  // ---- checkpoint loader (slim strip; hides itself when done) ----
   const ld = (() => {
-    let t0 = 0, clock = null, hideTimer = null;
-    const el = name => document.querySelector(`.step[data-step="${name}"]`);
+    const LABEL = { who: 'Checking who you are', shops: 'Finding your shops', list: 'Asking Whatnot for the last 30 days', contents: 'Reading what is in each box' };
+    const SHORT = { who: 'you', shops: 'shops', list: 'list', contents: 'contents' };
+    const ORDER = ['who', 'shops', 'list', 'contents'];
+    let t0 = 0, clock = null; const done = new Set(); let cur = null, sub = '';
     const tick = () => { $('ldClock').textContent = Math.round((Date.now() - t0) / 1000) + 's'; };
+    const draw = () => {
+      $('ldNow').innerHTML = cur ? `<b>${esc(LABEL[cur])}</b>${sub ? ' · ' + esc(sub) : ''}` : '';
+      $('ldTicks').innerHTML = ORDER.filter(n => done.has(n)).map(n => `<span>${SHORT[n]}</span>`).join('');
+    };
     return {
       start(fromStep) {
-        clearTimeout(hideTimer); t0 = t0 || Date.now(); if (!clock) clock = setInterval(tick, 500);
-        $('loader').hidden = false;
-        const order = ['who', 'shops', 'list', 'contents']; let seen = false;
-        for (const n of order) { const e = el(n); if (n === fromStep) seen = true; if (seen) { e.className = 'step'; e.querySelector('.sub').textContent = ''; const b = e.querySelector('.bar'); if (b) b.hidden = true; } }
+        t0 = t0 || Date.now(); if (!clock) clock = setInterval(tick, 500); tick();
+        $('loader').hidden = false; $('loader').classList.remove('error'); $('ldBar').hidden = true;
+        let seen = false; for (const n of ORDER) { if (n === fromStep) seen = true; if (seen) done.delete(n); }
+        cur = null; sub = ''; draw();
       },
       restart() { t0 = Date.now(); this.start('list'); },
-      step(name, sub) { const e = el(name); e.className = 'step active'; e.querySelector('.sub').textContent = sub || ''; },
-      sub(name, sub) { el(name).querySelector('.sub').textContent = sub || ''; },
-      bar(name, frac) { const b = el(name).querySelector('.bar'); b.hidden = false; b.firstElementChild.style.width = Math.round(frac * 100) + '%'; },
-      done(name, sub) { const e = el(name); e.className = 'step done'; if (sub != null) e.querySelector('.sub').textContent = sub; },
-      fail(name, sub) { const e = el(name); e.className = 'step error'; e.querySelector('.sub').textContent = sub || ''; clearInterval(clock); clock = null; },
-      finish(text) { clearInterval(clock); clock = null; tick(); $('ldFoot').textContent = text || 'Done.'; hideTimer = setTimeout(() => { $('loader').hidden = true; t0 = 0; }, 2500); },
+      step(name, text) { cur = name; sub = text || ''; draw(); },
+      sub(name, text) { if (cur === name) { sub = text || ''; draw(); } },
+      bar(name, frac) { $('ldBar').hidden = false; $('ldBar').firstElementChild.style.width = Math.round(frac * 100) + '%'; },
+      done(name) { done.add(name); if (cur === name) { cur = null; sub = ''; } draw(); },
+      fail(name, text) { cur = name; sub = text || 'failed'; $('loader').classList.add('error'); clearInterval(clock); clock = null; draw(); },
+      finish() { clearInterval(clock); clock = null; t0 = 0; if (!$('loader').classList.contains('error')) { $('loader').hidden = true; $('ldBar').hidden = true; } },
     };
   })();
   async function load() {
@@ -399,7 +399,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
     let saved = null; try { saved = localStorage.getItem('chuku.om.shop'); } catch (_) {}
     shop = shops.some(k => k.shop === saved) ? saved : (shops[0] ? shops[0].shop : '');
     $('shop').value = shop;
-    if (!shop) { $('days').innerHTML = '<div class="panel empty">Add a shop token on the <a href="/tool/chuku/keys/">Keys</a> page first.</div>'; ld.finish('No shop to load.'); return; }
+    if (!shop) { $('days').innerHTML = '<div class="panel empty">Add a shop token on the <a href="/tool/chuku/keys/">Keys</a> page first.</div>'; ld.finish(); return; }
     load();
   }
 
