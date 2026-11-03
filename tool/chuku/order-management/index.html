@@ -58,15 +58,15 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 .empty{padding:28px;text-align:center;color:var(--muted)}
 /* Checkpoint loader: one slim strip under the controls. Finished checkpoints collapse to ticks; it hides itself as soon as the load is done. */
 .loader{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent-soft) 40%,var(--panel))}
-.loader .line{display:flex;gap:10px;align-items:center;font-size:14px;min-width:0}
+.loader .line{display:flex;gap:10px;align-items:flex-start;font-size:14px;min-width:0} .loader .spin{margin-top:3px}
 .loader .spin{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
 .loader.error .spin{animation:none;border:0;background:var(--bad);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center} .loader.error .spin::before{content:"!"}
-.loader .now{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .loader .now b{font-weight:500} .loader.error .now{color:var(--bad)}
+.loader .now{flex:1 1 auto;min-width:0} .loader .now b{font-weight:500} .loader.error .now{color:var(--bad)}
 .loader .ticks{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)} .loader .ticks span{white-space:nowrap} .loader .ticks span::before{content:"✓ ";color:var(--good);font-weight:700}
 .loader .clock{flex:0 0 auto;font-size:12px;color:var(--muted)}
 .loader .bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .loader .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (max-width:760px){ .loader .ticks{display:none} .loader .now{white-space:normal} .loader .line{align-items:flex-start} .loader .spin{margin-top:3px} }
+@media (max-width:760px){ .loader .ticks{display:none} }
 .cards{display:none}
 @media (max-width:760px){
   table{display:none} .cards{display:block}
