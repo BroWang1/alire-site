@@ -76,7 +76,17 @@ footer{color:var(--muted);font-size:13px}
 .seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden}
 .seg button{appearance:none;border:0;background:var(--panel);color:var(--fg);font:inherit;padding:6px 11px;cursor:pointer}
 .seg button.on{background:var(--accent);color:var(--accent-ink)}
-@media (max-width:640px){ .row .btn{flex:1 1 auto} .seg{flex-wrap:wrap} .chart-head .grow{display:none} }
+@media (max-width:640px){
+  .row .btn{flex:1 1 auto}
+  .chart-head .grow{display:none}
+  .chart-head .seg{width:100%} .chart-head .seg button{flex:1;padding:7px 4px;font-size:13px}
+  .tabs{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;padding-bottom:2px;scrollbar-width:none} .tabs::-webkit-scrollbar{display:none}
+  .tabs .btn{flex:0 0 auto;padding:7px 11px;font-size:13px}
+  #csv{flex:0 0 auto;padding:7px 11px;font-size:13px}
+  th,td{padding:6px 8px;font-size:13px}
+  .sm-hide{display:none}
+  .detail{padding:8px}
+}
 </style>
 </head>
 <body>
@@ -239,17 +249,17 @@ footer{color:var(--muted);font-size:13px}
     return [...m.values()].map(g => ({ ...g, shipments: g.ships.size, buyers: g.buyers.size }));
   }
   const TABS = {
-    day:      { cols: [['key','Date'],['shipments','Shipments','num'],['buyers','Buyers','num'],['units','Units','num'],['revenue','Revenue','money']], rows: l => groupBy(l, i => i.order_date), defaultSort: 'key' },
-    product:  { cols: [['key','Product','wrap'],['orders','Orders','num'],['units','Units','num'],['revenue','Revenue','money'],['avg','Avg price','money']], rows: l => groupBy(l, i => i.product).map(g => ({ ...g, avg: g.orders ? Math.round(g.revenue / g.units || 0) : 0 })), defaultSort: 'revenue' },
-    buyer:    { cols: [['key','Buyer'],['shipments','Shipments','num'],['units','Units','num'],['revenue','Revenue','money'],['first','First','date'],['last','Last','date']], rows: l => groupBy(l, i => i.buyer, (g, i) => { g.first = i.order_date; g.last = i.order_date; }).map(g => { const ds = l.filter(i => i.buyer === g.key).map(i => i.order_date).sort(); return { ...g, first: ds[0], last: ds[ds.length - 1] }; }), defaultSort: 'revenue' },
-    shop:     { cols: [['key','Shop'],['shipments','Shipments','num'],['buyers','Buyers','num'],['units','Units','num'],['revenue','Revenue','money']], rows: l => groupBy(l, i => i.shop), defaultSort: 'revenue' },
-    shipment: { cols: [['order_date','Date','date'],['buyer','Buyer'],['type','Type'],['item_count','Items','num'],['total','Total','money'],['tracking','Tracking'],['show','Show','wrap']],
+    day:      { cols: [['key','Date'],['shipments','Shipments','num'],['buyers','Buyers','num',1],['units','Units','num',1],['revenue','Revenue','money']], rows: l => groupBy(l, i => i.order_date), defaultSort: 'key' },
+    product:  { cols: [['key','Product','wrap'],['orders','Orders','num',1],['units','Units','num'],['revenue','Revenue','money'],['avg','Avg price','money',1]], rows: l => groupBy(l, i => i.product).map(g => ({ ...g, avg: g.orders ? Math.round(g.revenue / g.units || 0) : 0 })), defaultSort: 'revenue' },
+    buyer:    { cols: [['key','Buyer'],['shipments','Shipments','num',1],['units','Units','num'],['revenue','Revenue','money'],['first','First','date',1],['last','Last','date',1]], rows: l => groupBy(l, i => i.buyer, (g, i) => { g.first = i.order_date; g.last = i.order_date; }).map(g => { const ds = l.filter(i => i.buyer === g.key).map(i => i.order_date).sort(); return { ...g, first: ds[0], last: ds[ds.length - 1] }; }), defaultSort: 'revenue' },
+    shop:     { cols: [['key','Shop'],['shipments','Shipments','num'],['buyers','Buyers','num',1],['units','Units','num',1],['revenue','Revenue','money']], rows: l => groupBy(l, i => i.shop), defaultSort: 'revenue' },
+    shipment: { cols: [['order_date','Date','date'],['buyer','Buyer'],['type','Type',null,1],['item_count','Items','num'],['total','Total','money'],['tracking','Tracking',null,1],['show','Show','wrap',1]],
                 rows: l => { const m = new Map(); for (const i of l) { if (!m.has(i.shipment_id)) m.set(i.shipment_id, { key: i.shipment_id, order_date: i.order_date, buyer: i.buyer, type: i.shipments?.pickup ? 'pickup' : 'ship', item_count: i.shipments?.item_count, total: i.shipments?.total_cents ?? 0, tracking: i.shipments?.tracking || '', show: i.shipments?.show_title || '' }); } return [...m.values()]; }, defaultSort: 'order_date' },
-    activity: { cols: [['at','When','datetime'],['what','What'],['who','Who'],['shop','Shop'],['info','Details','wrap']],
+    activity: { cols: [['at','When','datetime'],['what','What'],['who','Who'],['shop','Shop',null,1],['info','Details','wrap']],
                 rows: () => events.map(e => { const d = e.detail || {}; const what = { sorter_open: 'Opened the sorter', sorter_drop: 'Dropped a PDF', signin_request: 'Requested sign-in link', signin: 'Signed in' }[e.kind] || e.kind;
                   const info = e.kind === 'sorter_drop' ? `${d.file || ''}: ${d.shipments ?? '?'} shipments, ${d.items ?? '?'} items${d.pickups ? ', ' + d.pickups + ' pickup' : ''}` : e.kind === 'signin' ? (d.allowed ? 'allowed' : 'NOT on allowed list') : e.kind === 'signin_request' ? (d.ok ? 'link sent' : 'failed: ' + (d.error || '')) : (d.ref ? 'from ' + d.ref : '') ;
                   return { key: e.id, at: e.at, what, who: e.email || (e.kind.startsWith('sorter') ? 'anonymous' : ''), shop: e.shop || '', info, agent: e.agent || '' }; }), defaultSort: 'at' },
-    batch:    { cols: [['dropped_at','Dropped','datetime'],['shop','Shop'],['file_name','File','wrap'],['page_count','Pages','num'],['shipment_count','Shipments','num'],['item_count','Items','num'],['total_cents','Total','money']], rows: () => batches.map(b => ({ ...b, key: b.id })), defaultSort: 'dropped_at' },
+    batch:    { cols: [['dropped_at','Dropped','datetime'],['shop','Shop',null,1],['file_name','File','wrap',1],['page_count','Pages','num',1],['shipment_count','Shipments','num'],['item_count','Items','num'],['total_cents','Total','money']], rows: () => batches.map(b => ({ ...b, key: b.id })), defaultSort: 'dropped_at' },
   };
 
   // ---------- render ----------
@@ -269,9 +279,9 @@ footer{color:var(--muted);font-size:13px}
     drawChart(list);
 
     const thead = $('table').querySelector('thead'), tbody = $('table').querySelector('tbody');
-    thead.innerHTML = '<tr>' + t.cols.map(([k, label, kind]) => `<th data-k="${k}" class="${kind === 'num' || kind === 'money' ? 'num' : ''} ${sortKey === k ? 'sorted' + (sortAsc ? ' asc' : '') : ''}">${label}</th>`).join('') + '</tr>';
+    thead.innerHTML = '<tr>' + t.cols.map(([k, label, kind, sm]) => `<th data-k="${k}" class="${kind === 'num' || kind === 'money' ? 'num' : ''} ${sm ? 'sm-hide' : ''} ${sortKey === k ? 'sorted' + (sortAsc ? ' asc' : '') : ''}">${label}</th>`).join('') + '</tr>';
     const fmt = (v, kind) => kind === 'money' ? money(v || 0) : kind === 'datetime' ? new Date(v).toLocaleString() : esc(v);
-    tbody.innerHTML = rows.map(r => `<tr data-key="${esc(r.key)}" class="${String(r.key) === String(openKey) ? 'open' : ''}">` + t.cols.map(([k, , kind]) => `<td class="${kind === 'num' || kind === 'money' ? 'num' : kind === 'wrap' ? 'wrap' : ''}">${k === 'type' ? `<span class="pill ${r.type}">${r.type}</span>` : fmt(r[k], kind)}</td>`).join('') + '</tr>').join('');
+    tbody.innerHTML = rows.map(r => `<tr data-key="${esc(r.key)}" class="${String(r.key) === String(openKey) ? 'open' : ''}">` + t.cols.map(([k, , kind, sm]) => `<td class="${kind === 'num' || kind === 'money' ? 'num' : kind === 'wrap' ? 'wrap' : ''} ${sm ? 'sm-hide' : ''}">${k === 'type' ? `<span class="pill ${r.type}">${r.type}</span>` : fmt(r[k], kind)}</td>`).join('') + '</tr>').join('');
     $('count').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} · ${list.length} item rows loaded${$('q').value ? ' · filtered by search' : ''}`; $('count').className = 'muted';
     if (openKey !== null) showDetail(openKey, list);
     $('foot').textContent = 'Revenue is the sum of item sale prices on the slips. Shipping paid by buyers and Whatnot fees are not on slips and not included.';
@@ -346,7 +356,8 @@ footer{color:var(--muted);font-size:13px}
       if (i === maxI && v > 0) el('text', { x: x(i) + bw / 2, y: y(v) - 5, 'text-anchor': 'middle', class: 'lbl' }, METRICS[metric].short(v));
     });
     const every = Math.ceil(n / Math.max(2, Math.floor(plotW / 64)));
-    days.forEach((d, i) => { if (i % every === 0 || i === n - 1) el('text', { x: x(i) + bw / 2, y: H - 8, 'text-anchor': 'middle' }, shortDate(d.date)); });
+    const lastLabeled = Math.floor((n - 1) / every) * every;
+    days.forEach((d, i) => { if (i % every === 0 || (i === n - 1 && i - lastLabeled >= every / 2)) el('text', { x: x(i) + bw / 2, y: H - 8, 'text-anchor': 'middle' }, shortDate(d.date)); });
     days.forEach((d, i) => { const hit = el('rect', { x: L + i * slot, y: T, width: slot, height: plotH, class: 'hit' });
       hit.addEventListener('mouseenter', () => { tip.innerHTML = `${weekly ? 'week of ' : ''}${shortDate(d.date)}<br><b>${money(d.revenue)}</b> · ${d.shipments} shipments · ${d.units} units`; tip.hidden = false; const px = (L + i * slot + slot / 2) / W * wrap.clientWidth; tip.style.left = Math.min(Math.max(px - 70, 0), wrap.clientWidth - 200) + 'px'; tip.style.top = (y(d[metric]) / H * wrap.clientHeight - 60) + 'px'; });
       hit.addEventListener('mouseleave', () => { tip.hidden = true; });
@@ -355,6 +366,9 @@ footer{color:var(--muted);font-size:13px}
     wrap.appendChild(svg);
   }
   $('metric').addEventListener('click', e => { const b = e.target.closest('button[data-m]'); if (!b) return; metric = b.dataset.m; document.querySelectorAll('#metric button').forEach(x => x.classList.toggle('on', x === b)); drawChart(filtered()); });
+  const RANGE_LABELS = { 3: ['3 days', '3d'], 7: ['1 week', '1w'], 30: ['1 month', '1mo'], 182: ['6 months', '6mo'], all: ['All time', 'All'] };
+  function fitRangeLabels() { const small = innerWidth <= 640; document.querySelectorAll('#ranges button').forEach(b => { b.textContent = RANGE_LABELS[b.dataset.range][small ? 1 : 0]; }); }
+  fitRangeLabels(); window.addEventListener('resize', fitRangeLabels);
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => items.length && drawChart(filtered()), 150); });
   window.chukuDebug = { show(list, evs) { items = list; events = evs || []; $('gate').hidden = true; $('app').hidden = false; $('pageHead').hidden = false; render(); } };
 
