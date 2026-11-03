@@ -56,6 +56,18 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 .ignored td:not(.actions){opacity:.55} .overdue .due{color:var(--bad);font-weight:600}
 .msg{font-size:14px;min-height:1.4em} .err{color:var(--bad)} .prog{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .prog i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .empty{padding:28px;text-align:center;color:var(--muted)}
+/* Checkpoint loader: shows each stage of a load so a long first open never looks frozen. */
+.loader{display:flex;flex-direction:column;gap:10px}
+.loader .steps{display:flex;flex-direction:column;gap:8px}
+.step{display:flex;gap:12px;align-items:flex-start;color:var(--muted)}
+.step .ic{flex:0 0 22px;width:22px;height:22px;border-radius:50%;border:2px solid var(--line-strong);display:grid;place-items:center;font-size:12px;font-weight:600;box-sizing:border-box;margin-top:1px}
+.step.active{color:var(--fg)} .step.active .ic{border-color:var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
+.step.done .ic{background:var(--good);border-color:var(--good);color:#fff} .step.done .ic::before{content:"✓"}
+.step.error .ic{background:var(--bad);border-color:var(--bad);color:#fff} .step.error .ic::before{content:"!"} .step.error{color:var(--bad)}
+.step .body{flex:1;min-width:0} .step .lbl{font-weight:500} .step .sub{font-size:13px;color:var(--muted)}
+.step .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:6px} .step .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader .foot{font-size:13px;color:var(--muted)}
 .cards{display:none}
 @media (max-width:760px){
   table{display:none} .cards{display:block}
@@ -87,7 +99,17 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
         <button class="btn" id="reload">Refresh</button>
       </div>
       <div class="row"><span class="msg grow" id="msg"></span><span class="muted small" id="stamp"></span></div>
-      <div class="prog" id="prog" hidden><i></i></div>
+    </section>
+
+    <section class="panel loader" id="loader" hidden>
+      <div class="row"><h2 class="grow">Loading</h2><span class="muted small mono" id="ldClock">0s</span></div>
+      <div class="steps">
+        <div class="step" data-step="who"><span class="ic"></span><div class="body"><div class="lbl">Checking who you are</div><div class="sub"></div></div></div>
+        <div class="step" data-step="shops"><span class="ic"></span><div class="body"><div class="lbl">Finding your shops</div><div class="sub"></div></div></div>
+        <div class="step" data-step="list"><span class="ic"></span><div class="body"><div class="lbl">Asking Whatnot for the last 30 days</div><div class="sub"></div></div></div>
+        <div class="step" data-step="contents"><span class="ic"></span><div class="body"><div class="lbl">Reading what is in each box</div><div class="sub"></div><div class="bar" hidden><i></i></div></div></div>
+      </div>
+      <div class="foot" id="ldFoot">Boxes appear below as soon as the list arrives; the contents fill in after, fewest-items-first sorting settles when they are done.</div>
     </section>
 
     <section class="tiles" id="tiles"></section>
@@ -291,40 +313,70 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
     return j;
   }
   const say = (text, bad) => { $('msg').textContent = text; $('msg').className = 'msg grow' + (bad ? ' err' : ''); };
+  // ---- checkpoint loader ----
+  const ld = (() => {
+    let t0 = 0, clock = null, hideTimer = null;
+    const el = name => document.querySelector(`.step[data-step="${name}"]`);
+    const tick = () => { $('ldClock').textContent = Math.round((Date.now() - t0) / 1000) + 's'; };
+    return {
+      start(fromStep) {
+        clearTimeout(hideTimer); t0 = t0 || Date.now(); if (!clock) clock = setInterval(tick, 500);
+        $('loader').hidden = false;
+        const order = ['who', 'shops', 'list', 'contents']; let seen = false;
+        for (const n of order) { const e = el(n); if (n === fromStep) seen = true; if (seen) { e.className = 'step'; e.querySelector('.sub').textContent = ''; const b = e.querySelector('.bar'); if (b) b.hidden = true; } }
+      },
+      restart() { t0 = Date.now(); this.start('list'); },
+      step(name, sub) { const e = el(name); e.className = 'step active'; e.querySelector('.sub').textContent = sub || ''; },
+      sub(name, sub) { el(name).querySelector('.sub').textContent = sub || ''; },
+      bar(name, frac) { const b = el(name).querySelector('.bar'); b.hidden = false; b.firstElementChild.style.width = Math.round(frac * 100) + '%'; },
+      done(name, sub) { const e = el(name); e.className = 'step done'; if (sub != null) e.querySelector('.sub').textContent = sub; },
+      fail(name, sub) { const e = el(name); e.className = 'step error'; e.querySelector('.sub').textContent = sub || ''; clearInterval(clock); clock = null; },
+      finish(text) { clearInterval(clock); clock = null; tick(); $('ldFoot').textContent = text || 'Done.'; hideTimer = setTimeout(() => { $('loader').hidden = true; t0 = 0; }, 2500); },
+    };
+  })();
   async function load() {
     if (!shop) return;
     contentsRun++; ships = []; open.clear(); render();
-    say('Asking Whatnot for the last 30 days…'); $('reload').disabled = true; $('stamp').textContent = '';
+    say(''); $('reload').disabled = true; $('stamp').textContent = '';
+    ld.restart(); ld.step('list', `@${shop} · one call per 50 boxes, usually 2 to 6 seconds`);
     try {
       const since = new Date(Date.now() - 30 * 864e5).toISOString();
       const j = await call({ action: 'list', since, max_pages: 12 });
       ignored = new Set((j.ignored_buyers || []).map(x => x.toLowerCase()));
       ships = (j.shipments || []).filter(s => new Date(s.created_at || 0).getTime() >= Date.parse(since) - 864e5);
       $('stamp').textContent = `Whatnot answered ${new Date(j.fetched_at).toLocaleTimeString()} · ${ships.length} shipments${j.stopped_by === 'max_pages' ? ' (cut off at ' + j.pages * 50 + ')' : ''}`;
-      say('');
+      ld.done('list', `${ships.length} boxes in ${j.pages} page${j.pages === 1 ? '' : 's'}, ${j.cached || 0} already known`);
       render();
       loadContents();
-    } catch (err) { say(err.message, true); }
+    } catch (err) { say(err.message, true); ld.fail('list', err.message); }
     finally { $('reload').disabled = false; }
   }
   // Contents (what is in the box) come in batches of 15, newest first; the server caches each one.
   async function loadContents() {
     const run = contentsRun; const todo = ships.filter(s => !s.contents).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-    const total = todo.length; if (!total) { $('prog').hidden = true; return; }
-    const base = $('stamp').textContent;
-    $('prog').hidden = false; let done = 0;
+    const total = todo.length;
+    if (!total) { ld.done('contents', ships.length ? 'all boxes already known' : 'nothing to read'); ld.finish(`Done. ${ships.length} boxes, all from cache.`); return; }
+    const base = $('stamp').textContent; const t0 = Date.now();
+    ld.step('contents', `0 of ${total} · about 3 calls per box, 5 boxes at a time`); ld.bar('contents', 0);
+    let done = 0, failed = 0;
     while (todo.length && run === contentsRun) {
       const batch = todo.splice(0, 15);
       try {
         const j = await call({ action: 'items_bulk', shipments: batch.map(s => ({ id: s.id, updated_at: s.updated_at, status: s.status })) });
         if (run !== contentsRun) return;
-        for (const s of batch) { const c = j.contents && j.contents[s.id]; if (c) s.contents = { orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count }; }
-      } catch (err) { if (run !== contentsRun) return; say('Contents: ' + err.message, true); }
-      done += batch.length; $('prog').firstElementChild.style.width = Math.round(done / total * 100) + '%';
+        for (const s of batch) { const c = j.contents && j.contents[s.id]; if (c) s.contents = { orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count }; else failed++; }
+      } catch (err) { if (run !== contentsRun) return; failed += batch.length; say('Contents: ' + err.message, true); }
+      done += batch.length;
+      const secs = (Date.now() - t0) / 1000, eta = done ? Math.max(0, Math.round(secs / done * (total - done))) : 0;
+      ld.sub('contents', `${done} of ${total}${todo.length ? ` · about ${eta}s left` : ''}${failed ? ` · ${failed} not answered` : ''}`); ld.bar('contents', done / total);
       $('stamp').textContent = `${base} · contents ${done}/${total}`;
       render();
     }
-    if (run === contentsRun) { $('prog').hidden = true; $('stamp').textContent = base; }
+    if (run === contentsRun) {
+      $('stamp').textContent = base;
+      if (failed) ld.fail('contents', `${done - failed} read, ${failed} boxes not answered by Whatnot. Refresh to retry them.`); else ld.done('contents', `${done} boxes read`);
+      ld.finish(failed ? 'Finished with gaps.' : `Done in ${Math.round((Date.now() - t0) / 1000)}s. Next time these boxes come from the cache.`);
+    }
   }
   async function openLabel(id, btn) {
     const old = btn.textContent; btn.disabled = true; btn.textContent = 'Fetching…';
@@ -338,18 +390,20 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   }
 
   async function loadShops() {
+    ld.step('shops');
     const { data, error } = await sb.from('shop_keys').select('shop, status, shops(display_name)').is('removed_at', null).order('shop');
-    if (error) { say(error.message, true); return; }
+    if (error) { say(error.message, true); ld.fail('shops', error.message); return; }
     shops = data || [];
+    ld.done('shops', shops.length ? shops.map(k => '@' + k.shop).join(', ') : 'none yet');
     $('shop').innerHTML = shops.length ? shops.map(k => `<option value="${esc(k.shop)}">@${esc(k.shop)}${k.shops && k.shops.display_name ? ' (' + esc(k.shops.display_name) + ')' : ''}${k.status !== 'ok' ? ' — key ' + esc(k.status) : ''}</option>`).join('') : '<option value="">No shop keys yet</option>';
     let saved = null; try { saved = localStorage.getItem('chuku.om.shop'); } catch (_) {}
     shop = shops.some(k => k.shop === saved) ? saved : (shops[0] ? shops[0].shop : '');
     $('shop').value = shop;
-    if (!shop) { $('days').innerHTML = '<div class="panel empty">Add a shop token on the <a href="/tool/chuku/keys/">Keys</a> page first.</div>'; return; }
+    if (!shop) { $('days').innerHTML = '<div class="panel empty">Add a shop token on the <a href="/tool/chuku/keys/">Keys</a> page first.</div>'; ld.finish('No shop to load.'); return; }
     load();
   }
 
-  window.ChukuGate.ready(ctx => { session = ctx.session; $('whoEmail').textContent = ctx.email; sb.auth.onAuthStateChange((_e, s) => { if (s) session = s; }); loadShops(); });
+  window.ChukuGate.ready(ctx => { session = ctx.session; $('whoEmail').textContent = ctx.email; sb.auth.onAuthStateChange((_e, s) => { if (s) session = s; }); ld.start('who'); ld.done('who', ctx.email); loadShops(); });
 })();
 </script>
 </body>
