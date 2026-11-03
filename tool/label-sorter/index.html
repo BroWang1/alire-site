@@ -513,6 +513,13 @@ td.user{font-family:var(--mono);font-size:13px}
       })),
     };
   }
+  function chukuLog(kind, detail, shop) {
+    if (!CHUKU_URL || !CHUKU_KEY) return;
+    fetch(CHUKU_URL.replace(/\/$/, '') + '/rest/v1/rpc/log_event', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CHUKU_KEY, Authorization: 'Bearer ' + CHUKU_KEY },
+      body: JSON.stringify({ kind, shop: shop || null, detail: detail || null, agent: navigator.userAgent.slice(0, 200) }),
+    }).catch(() => {});
+  }
   async function chukuStore() {
     if (!CHUKU_URL || !CHUKU_KEY || !state) return null;
     const r = await fetch(CHUKU_URL.replace(/\/$/, '') + '/rest/v1/rpc/ingest_batch', {
@@ -626,6 +633,8 @@ td.user{font-family:var(--mono);font-size:13px}
       if (!state.shipments.length) { status.textContent = 'No Whatnot packing slips found in this PDF. It needs slip pages that start with “Whatnot Packing Slip”.'; return; }
       render();
       if (CHUKU_URL) {
+        const pl = chukuPayload();
+        chukuLog('sorter_drop', { file: state.name, pages: state.pageCount, shipments: state.shipments.length, items: pl.shipments.reduce((a, s) => a + s.items.length, 0), pickups: state.shipments.filter(x => x.pickup).length }, pl.shop);
         const stored = $('stored');
         stored.textContent = 'Storing slip data…';
         chukuStore().then(res => { stored.textContent = res ? `Stored: ${res.shipments} shipments, ${res.items} items (${res.new_shipments} new).` : ''; })
@@ -645,7 +654,7 @@ td.user{font-family:var(--mono);font-size:13px}
   document.addEventListener('dragover', e => e.preventDefault());
   document.addEventListener('drop', e => e.preventDefault());
 
-  if (CHUKU_URL) $('disclosure').hidden = false;
+  if (CHUKU_URL) { $('disclosure').hidden = false; chukuLog('sorter_open', { page: location.pathname, ref: document.referrer ? new URL(document.referrer).host : '' }); }
   if (!window.pdfjsLib || !window.PDFLib) status.textContent = 'The PDF libraries did not load. Check your connection and reload.';
 })();
 </script>

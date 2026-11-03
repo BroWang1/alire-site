@@ -161,3 +161,28 @@ create or replace view v_shops with (security_invoker = true) as
 
 -- ---------- allow yourself ----------
 -- insert into allowed_users (email, note) values ('you@example.com', 'owner');
+
+-- ---------- activity log ----------
+create table if not exists events (
+  id      bigint generated always as identity primary key,
+  at      timestamptz not null default now(),
+  kind    text not null,            -- sorter_open | sorter_drop | signin_request | signin
+  shop    text,
+  email   text,
+  detail  jsonb,
+  agent   text
+);
+create index if not exists events_at_idx on events (at desc);
+alter table events enable row level security;
+drop policy if exists "allowed read events" on events;
+create policy "allowed read events" on events for select to authenticated using (is_allowed());
+
+-- Anyone may append an event; the email is taken from the session when signed in, never trusted from the caller.
+create or replace function log_event(kind text, shop text default null, detail jsonb default null, agent text default null, email_hint text default null)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  insert into events (kind, shop, email, detail, agent)
+  values (left(kind, 40), left(shop, 80), coalesce(auth.jwt()->>'email', left(email_hint, 120)), detail, left(agent, 200));
+end $$;
+revoke all on function log_event(text, text, jsonb, text, text) from public;
+grant execute on function log_event(text, text, jsonb, text, text) to anon, authenticated;

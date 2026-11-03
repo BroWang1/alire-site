@@ -128,6 +128,7 @@ footer{color:var(--muted);font-size:13px}
           <button class="btn" data-tab="shop">By shop</button>
           <button class="btn" data-tab="shipment">Shipments</button>
           <button class="btn" data-tab="batch">Batches</button>
+          <button class="btn" data-tab="activity">Activity</button>
         </div>
         <span class="grow"></span>
         <button class="btn" id="csv">Export CSV</button>
@@ -153,12 +154,15 @@ footer{color:var(--muted);font-size:13px}
   const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const iso = d => d.toISOString().slice(0, 10);
 
+  const logEvent = (kind, detail, email_hint) => sb.rpc('log_event', { kind, detail: detail || null, agent: navigator.userAgent.slice(0, 200), email_hint: email_hint || null }).then(() => {}, () => {});
+
   // ---------- auth ----------
   $('sendLink').addEventListener('click', async () => {
     const email = $('email').value.trim();
     if (!email) return;
     $('sendLink').disabled = true; $('gateMsg').textContent = 'Sending…';
     const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+    logEvent('signin_request', { ok: !error, error: error ? error.message : null }, email);
     $('gateMsg').textContent = error ? 'Could not send: ' + error.message : 'Check your email and open the link on this device.';
     $('gateMsg').className = error ? 'err' : 'ok';
     $('sendLink').disabled = false;
@@ -174,6 +178,7 @@ footer{color:var(--muted);font-size:13px}
     if (started) return; started = true;
     $('whoEmail').textContent = session.user.email; $('who').hidden = false;
     const { data: allowed, error } = await sb.rpc('is_allowed');
+    logEvent('signin', { allowed: !!allowed && !error });
     if (error || !allowed) {
       $('gateMsg').textContent = `${session.user.email} is signed in but not on the allowed list. Ask the owner to add it in Supabase (allowed_users).`;
       $('gateMsg').className = 'err'; $('sendLink').hidden = true; $('email').hidden = true; return;
@@ -183,7 +188,7 @@ footer{color:var(--muted);font-size:13px}
   }
 
   // ---------- data ----------
-  let items = [], batches = [], tab = 'day', sortKey = null, sortAsc = false, openKey = null;
+  let items = [], batches = [], events = [], tab = 'day', sortKey = null, sortAsc = false, openKey = null;
   function setRange(days) {
     document.querySelectorAll('#ranges button').forEach(b => b.classList.toggle('on', b.dataset.range === String(days)));
     const to = new Date(); const from = new Date();
@@ -210,6 +215,7 @@ footer{color:var(--muted);font-size:13px}
       if ($('shop').value) q = q.eq('shop', $('shop').value);
       items = await fetchAll(q);
       batches = await fetchAll(sb.from('batches').select('*').order('dropped_at', { ascending: false }));
+      events = await fetchAll(sb.from('events').select('*').order('at', { ascending: false }).limit(2000));
       const shops = [...new Set(items.map(i => i.shop).concat(batches.map(b => b.shop)))].sort();
       const sel = $('shop'); const cur = sel.value;
       sel.innerHTML = '<option value="">All shops</option>' + shops.map(s => `<option${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
@@ -239,6 +245,10 @@ footer{color:var(--muted);font-size:13px}
     shop:     { cols: [['key','Shop'],['shipments','Shipments','num'],['buyers','Buyers','num'],['units','Units','num'],['revenue','Revenue','money']], rows: l => groupBy(l, i => i.shop), defaultSort: 'revenue' },
     shipment: { cols: [['order_date','Date','date'],['buyer','Buyer'],['type','Type'],['item_count','Items','num'],['total','Total','money'],['tracking','Tracking'],['show','Show','wrap']],
                 rows: l => { const m = new Map(); for (const i of l) { if (!m.has(i.shipment_id)) m.set(i.shipment_id, { key: i.shipment_id, order_date: i.order_date, buyer: i.buyer, type: i.shipments?.pickup ? 'pickup' : 'ship', item_count: i.shipments?.item_count, total: i.shipments?.total_cents ?? 0, tracking: i.shipments?.tracking || '', show: i.shipments?.show_title || '' }); } return [...m.values()]; }, defaultSort: 'order_date' },
+    activity: { cols: [['at','When','datetime'],['what','What'],['who','Who'],['shop','Shop'],['info','Details','wrap']],
+                rows: () => events.map(e => { const d = e.detail || {}; const what = { sorter_open: 'Opened the sorter', sorter_drop: 'Dropped a PDF', signin_request: 'Requested sign-in link', signin: 'Signed in' }[e.kind] || e.kind;
+                  const info = e.kind === 'sorter_drop' ? `${d.file || ''}: ${d.shipments ?? '?'} shipments, ${d.items ?? '?'} items${d.pickups ? ', ' + d.pickups + ' pickup' : ''}` : e.kind === 'signin' ? (d.allowed ? 'allowed' : 'NOT on allowed list') : e.kind === 'signin_request' ? (d.ok ? 'link sent' : 'failed: ' + (d.error || '')) : (d.ref ? 'from ' + d.ref : '') ;
+                  return { key: e.id, at: e.at, what, who: e.email || (e.kind.startsWith('sorter') ? 'anonymous' : ''), shop: e.shop || '', info, agent: e.agent || '' }; }), defaultSort: 'at' },
     batch:    { cols: [['dropped_at','Dropped','datetime'],['shop','Shop'],['file_name','File','wrap'],['page_count','Pages','num'],['shipment_count','Shipments','num'],['item_count','Items','num'],['total_cents','Total','money']], rows: () => batches.map(b => ({ ...b, key: b.id })), defaultSort: 'dropped_at' },
   };
 
@@ -280,6 +290,8 @@ footer{color:var(--muted);font-size:13px}
     else if (tab === 'buyer') sub = list.filter(i => i.buyer === key);
     else if (tab === 'shop') sub = list.filter(i => i.shop === key);
     else if (tab === 'shipment') sub = list.filter(i => String(i.shipment_id) === String(key));
+    else if (tab === 'activity') { const ev = events.find(e => String(e.id) === String(key)); const d = document.createElement('tr'); d.className = 'detailrow';
+      d.innerHTML = `<td colspan="5" style="white-space:normal"><div class="detail muted">Browser: ${esc(ev && ev.agent || 'unknown')}</div></td>`; tr.after(d); return; }
     else sub = items.filter(i => String(i.shipments?.batch_id) === String(key));
     sub = sub.slice().sort((a, b) => (a.buyer || '').localeCompare(b.buyer || '') || (a.product || '').localeCompare(b.product || ''));
     const d = document.createElement('tr'); d.className = 'detailrow';
@@ -344,7 +356,7 @@ footer{color:var(--muted);font-size:13px}
   }
   $('metric').addEventListener('click', e => { const b = e.target.closest('button[data-m]'); if (!b) return; metric = b.dataset.m; document.querySelectorAll('#metric button').forEach(x => x.classList.toggle('on', x === b)); drawChart(filtered()); });
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => items.length && drawChart(filtered()), 150); });
-  window.chukuDebug = { show(list) { items = list; $('gate').hidden = true; $('app').hidden = false; $('pageHead').hidden = false; render(); } };
+  window.chukuDebug = { show(list, evs) { items = list; events = evs || []; $('gate').hidden = true; $('app').hidden = false; $('pageHead').hidden = false; render(); } };
 
   // ---------- wiring ----------
   $('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; tab = b.dataset.tab; sortKey = null; sortAsc = false; openKey = null; document.querySelectorAll('#tabs .btn').forEach(x => x.classList.toggle('on', x === b)); render(); });
