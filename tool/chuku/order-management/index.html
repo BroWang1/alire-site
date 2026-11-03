@@ -57,7 +57,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 .msg{font-size:14px;min-height:1.4em} .err{color:var(--bad)} .prog{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .prog i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 /* Checkpoint loader: one slim strip under the controls. Finished checkpoints collapse to ticks; it hides itself as soon as the load is done. */
-.loader{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent-soft) 40%,var(--panel))}
+.loader[hidden]{display:none} .loader{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent-soft) 40%,var(--panel))}
 .loader .line{display:flex;gap:10px;align-items:flex-start;font-size:14px;min-width:0} .loader .spin{margin-top:3px}
 .loader .spin{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
 .loader.error .spin{animation:none;border:0;background:var(--bad);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center} .loader.error .spin::before{content:"!"}
@@ -345,7 +345,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
         if (run !== listRun) return;
         ignored = new Set((j.ignored_buyers || []).map(x => x.toLowerCase()));
         for (const s of j.shipments || []) if (new Date(s.created_at || 0).getTime() >= Date.parse(since) - 864e5) ships.push(s);
-        cursor = j.next_cursor || null; chunks++; pagesTotal += j.pages || 0; oldest = j.oldest_seen || oldest;
+        cursor = j.next_cursor || null; chunks++; pagesTotal += j.pages || 0; oldest = ships.reduce((m, s) => (s.created_at && (!m || s.created_at < m)) ? s.created_at : m, null);
         $('stamp').textContent = `${ships.length} boxes${oldest ? ' back to ' + niceDay(dayKey(oldest)) : ''} · Whatnot answered ${new Date(j.fetched_at).toLocaleTimeString()}`;
         ld.set('list', `${ships.length} boxes so far${oldest ? ', back to ' + niceDay(dayKey(oldest)) : ''}`);
         render();
