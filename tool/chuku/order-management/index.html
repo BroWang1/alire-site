@@ -56,6 +56,11 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 .ignored td:not(.actions){opacity:.55} .overdue .due{color:var(--bad);font-weight:600}
 .msg{font-size:14px;min-height:1.4em} .err{color:var(--bad)} .prog{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .prog i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .empty{padding:28px;text-align:center;color:var(--muted)}
+/* Print batch: pick boxes, make missing labels, combine into one PDF. */
+.printbar{position:sticky;top:8px;z-index:5;border-color:var(--accent);box-shadow:0 4px 16px rgba(0,0,0,.08)} .printbar[hidden]{display:none}
+.printbar .count{font-weight:600} .printbar label.tog{gap:6px;cursor:pointer;user-select:none}
+input[type=checkbox].pk{width:18px;height:18px;margin:0;cursor:pointer;accent-color:var(--accent);vertical-align:middle}
+td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
 /* Checkpoint loader: one slim strip under the controls. Finished checkpoints collapse to ticks; it hides itself as soon as the load is done. */
 .loader[hidden]{display:none} .loader{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent-soft) 40%,var(--panel))}
 .loader .line{display:flex;gap:10px;align-items:flex-start;font-size:14px;min-width:0} .loader .spin{margin-top:3px}
@@ -70,7 +75,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 .cards{display:none}
 @media (max-width:760px){
   table{display:none} .cards{display:block}
-  .card{padding:12px 14px;border-bottom:1px solid var(--line)} .card:last-child{border-bottom:0} .card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline} .card .top b{font-size:15px}
+  .card{padding:12px 14px;border-bottom:1px solid var(--line)} .card:last-child{border-bottom:0} .card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline} .card .top b{font-size:15px} .card .top .pk{margin-right:8px}
   .card .mid{margin:4px 0;color:var(--fg)} .card .bot{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:13px;color:var(--muted);align-items:center}
   .card .det{grid-template-columns:1fr;margin-top:8px} .card .det .meta{text-align:left;white-space:normal}
   .card.ignored{opacity:.6}
@@ -108,6 +113,15 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
 
     <section class="tiles" id="tiles"></section>
 
+    <section class="panel printbar row" id="printbar" hidden>
+      <span class="count" id="pkCount">0 picked</span>
+      <button class="btn sm" id="pickAll">Pick all in view</button><button class="btn sm" id="pickNone">Clear</button>
+      <label class="row tog small"><input type="checkbox" class="pk" id="withDropped"> Include dropped off</label>
+      <span class="grow"></span>
+      <button class="btn" id="makeLabels" disabled>Make labels</button>
+      <button class="btn primary" id="buildPdf" disabled>Build PDF</button>
+    </section>
+
     <section class="chips" id="chips"></section>
 
     <section class="stack" id="days"><div class="panel empty">Pick a shop.</div></section>
@@ -132,6 +146,8 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   let ships = [];            // slimmed shipments from the function, with .contents once known
   let chip = 'all', range = 'today', from = '', to = '', q = '';
   const open = new Set();    // expanded shipment ids
+  const picked = new Set();  // shipment ids ticked for printing
+  let withDropped = false;   // print view: also show boxes already dropped off
   let contentsRun = 0;
 
   $('signOut').addEventListener('click', () => window.ChukuGate.signOut());
@@ -175,8 +191,11 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   }
 
   // ---- filters ----
+  // "To print" = everything the carrier has not scanned yet: needs label + labeled. Dropped off joins only when the toggle is on. Pickups never.
+  const printable = s => s.fulfillment !== 'pickup' && !CANCEL.test(s.status) && (s.status === 'created' || s.status === 'label_generated' || (withDropped && s.status === 'dropped_off'));
   const CHIPS = [
     ['all', 'All', () => true],
+    ['print', 'To print', printable],
     ['needs_label', 'Needs label', s => kind(s) === 'needs_label'],
     ['labeled', 'Labeled', s => kind(s) === 'labeled'],
     ['shipped', 'Shipped', s => kind(s) === 'shipped'],
@@ -211,6 +230,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   function renderTiles() {
     const inR = ships.filter(inRange);
     const defs = [
+      ['print', 'To print', inR.filter(printable).length, 'warn'],
       ['needs_label', 'Needs label', inR.filter(s => kind(s) === 'needs_label').length, 'warn'],
       ['overdue', 'Overdue drop-off', inR.filter(isOverdue).length, 'bad'],
       ['labeled', 'Labeled, not dropped', inR.filter(s => kind(s) === 'labeled').length, ''],
@@ -254,15 +274,17 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
     const buyer = `<b>${esc(s.buyer || '—')}</b>${s.buyer_name && s.buyer_name !== s.buyer ? `<br><span class="muted small">${esc(s.buyer_name)}</span>` : ''}${isIgnored(s) ? ' <span class="pill grey">ignored</span>' : ''}`;
     const due = s.dropoff_due ? `<span class="due">${esc(dayKey(s.dropoff_due).slice(5))}</span>` : '';
     const track = s.tracking ? `<span class="mono small">${esc(s.carrier || '')} ${esc(s.tracking.slice(-8))}</span>` : '';
-    const main = `<tr class="${cls}" data-id="${esc(s.id)}"><td>${buyer}</td><td class="items">${itemsCell(s)}</td><td>${statusPill(s)}${isProblem(s) && !CANCEL.test(s.status) ? ' <span class="pill bad">action</span>' : ''}</td><td>${due}</td><td>${track}</td><td class="muted small mono">${s.created_at ? esc(timeFmt.format(new Date(s.created_at))) : ''}</td></tr>`;
-    const det = open.has(s.id) ? `<tr class="detail"><td colspan="6">${detail(s)}</td></tr>` : '';
+    const pk = chip === 'print' ? `<td class="pick"><input type="checkbox" class="pk" data-pick="${esc(s.id)}" ${picked.has(s.id) ? 'checked' : ''} aria-label="pick"></td>` : '';
+    const main = `<tr class="${cls}" data-id="${esc(s.id)}">${pk}<td>${buyer}</td><td class="items">${itemsCell(s)}</td><td>${statusPill(s)}${isProblem(s) && !CANCEL.test(s.status) ? ' <span class="pill bad">action</span>' : ''}</td><td>${due}</td><td>${track}</td><td class="muted small mono">${s.created_at ? esc(timeFmt.format(new Date(s.created_at))) : ''}</td></tr>`;
+    const det = open.has(s.id) ? `<tr class="detail"><td colspan="${chip === 'print' ? 7 : 6}">${detail(s)}</td></tr>` : '';
     return main + det;
   }
   function cardHtml(s) {
     const cls = ['card', isIgnored(s) ? 'ignored' : '', isOverdue(s) ? 'overdue' : ''].join(' ');
     const c = s.contents;
     const summary = c ? `<span class="n ${c.sku_count === 1 ? 'one' : ''}">${c.sku_count}</span>${c.unit_count} unit${c.unit_count === 1 ? '' : 's'}: ${esc(titlesOf(c).slice(0, 3).join(', '))}${titlesOf(c).length > 3 ? '…' : ''}` : `<span class="muted">${s.unread ? 'not answered yet' : 'loading contents…'}</span>`;
-    return `<div class="${cls}" data-id="${esc(s.id)}"><div class="top"><b>${esc(s.buyer || '—')}${isIgnored(s) ? ' <span class="pill grey">ignored</span>' : ''}</b>${statusPill(s)}</div><div class="mid small">${summary}</div><div class="bot">${s.dropoff_due ? `<span class="due">due ${esc(dayKey(s.dropoff_due).slice(5))}</span>` : ''}${s.tracking ? `<span class="mono">${esc(s.tracking.slice(-8))}</span>` : ''}<span>${s.created_at ? esc(timeFmt.format(new Date(s.created_at))) : ''}</span></div>${open.has(s.id) ? detail(s) : ''}</div>`;
+    const pk = chip === 'print' ? `<input type="checkbox" class="pk" data-pick="${esc(s.id)}" ${picked.has(s.id) ? 'checked' : ''} aria-label="pick">` : '';
+    return `<div class="${cls}" data-id="${esc(s.id)}"><div class="top"><b>${pk}${esc(s.buyer || '—')}${isIgnored(s) ? ' <span class="pill grey">ignored</span>' : ''}</b>${statusPill(s)}</div><div class="mid small">${summary}</div><div class="bot">${s.dropoff_due ? `<span class="due">due ${esc(dayKey(s.dropoff_due).slice(5))}</span>` : ''}${s.tracking ? `<span class="mono">${esc(s.tracking.slice(-8))}</span>` : ''}<span>${s.created_at ? esc(timeFmt.format(new Date(s.created_at))) : ''}</span></div>${open.has(s.id) ? detail(s) : ''}</div>`;
   }
   function renderDays() {
     const vis = visible();
@@ -278,15 +300,27 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
       const need = list.filter(s => kind(s) === 'needs_label').length, pk = list.filter(s => kind(s) === 'pickup').length, od = list.filter(isOverdue).length;
       const bits = [`${list.length} box${list.length === 1 ? '' : 'es'}`, need ? `<span class="err">${need} need label</span>` : '', od ? `<span class="err">${od} overdue</span>` : '', pk ? `${pk} pickup${pk === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
       const isOpen = first ? (i < 7 || keys.length <= 10) : wasOpen.has(k);
-      return `<details class="day" ${isOpen ? 'open' : ''} data-day="${k}"><summary><span class="d">${esc(niceDay(k))}</span><span class="c">${bits}</span></summary>
-        <table><thead><tr><th>Buyer</th><th>Contents</th><th>Status</th><th>Due</th><th>Tracking</th><th>Time</th></tr></thead><tbody>${list.map(rowHtml).join('')}</tbody></table>
+      const dayPk = chip === 'print' ? `<input type="checkbox" class="pk" data-pickday="${k}" ${list.every(s => picked.has(s.id)) ? 'checked' : ''} aria-label="pick whole day">` : '';
+      return `<details class="day" ${isOpen ? 'open' : ''} data-day="${k}"><summary>${dayPk}<span class="d">${esc(niceDay(k))}</span><span class="c">${bits}</span></summary>
+        <table><thead><tr>${chip === 'print' ? '<th class="pick"></th>' : ''}<th>Buyer</th><th>Contents</th><th>Status</th><th>Due</th><th>Tracking</th><th>Time</th></tr></thead><tbody>${list.map(rowHtml).join('')}</tbody></table>
         <div class="cards">${list.map(cardHtml).join('')}</div></details>`;
     }).join('');
   }
-  function render() { renderTiles(); renderDays(); }
+  const pickedShips = () => visible().filter(s => picked.has(s.id));
+  function renderPrintBar() {
+    const bar = $('printbar'); bar.hidden = chip !== 'print'; if (bar.hidden) return;
+    const ps = pickedShips(), need = ps.filter(s => !s.has_label).length, ready = ps.length - need;
+    $('pkCount').textContent = `${ps.length} picked` + (need ? ` · ${need} need a label` : '');
+    $('withDropped').checked = withDropped;
+    $('makeLabels').disabled = !need; $('makeLabels').textContent = need ? `Make ${need} label${need === 1 ? '' : 's'}` : 'Make labels';
+    $('buildPdf').disabled = !ready; $('buildPdf').textContent = ready ? `Build PDF (${ready})` : 'Build PDF';
+  }
+  function render() { renderTiles(); renderDays(); renderPrintBar(); }
 
   // ---- events ----
   document.addEventListener('click', e => {
+    const pk = e.target.closest('[data-pick]'); if (pk) { e.stopPropagation(); const id = pk.dataset.pick; if (picked.has(id)) picked.delete(id); else picked.add(id); renderDays(); renderPrintBar(); return; }
+    const pd = e.target.closest('[data-pickday]'); if (pd) { e.stopPropagation(); const list = visible().filter(s => dayKey(s.created_at) === pd.dataset.pickday); const all = list.every(s => picked.has(s.id)); for (const s of list) { if (all) picked.delete(s.id); else picked.add(s.id); } renderDays(); renderPrintBar(); return; }
     const t = e.target.closest('[data-chip]'); if (t) { chip = t.dataset.chip; render(); pumpContents(); return; }
     const r = e.target.closest('[data-range]'); if (r) { range = r.dataset.range; from = to = ''; $('from').value = $('to').value = ''; document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('on', b === r)); render(); pumpContents(); return; }
     const lb = e.target.closest('[data-label]'); if (lb) { e.stopPropagation(); openLabel(lb.dataset.label, lb); return; }
@@ -298,6 +332,11 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   $('q').addEventListener('input', () => { q = $('q').value.trim(); render(); });
   $('shop').addEventListener('change', () => { shop = $('shop').value; try { localStorage.setItem('chuku.om.shop', shop); } catch (_) {} load(); });
   $('reload').addEventListener('click', () => load());
+  $('withDropped').addEventListener('change', () => { withDropped = $('withDropped').checked; render(); pumpContents(); });
+  $('pickAll').addEventListener('click', () => { for (const s of visible()) picked.add(s.id); renderDays(); renderPrintBar(); });
+  $('pickNone').addEventListener('click', () => { picked.clear(); renderDays(); renderPrintBar(); });
+  $('makeLabels').addEventListener('click', () => makeLabels());
+  $('buildPdf').addEventListener('click', () => buildPdf());
 
   // ---- data ----
   async function call(body) {
@@ -309,9 +348,9 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   const say = (text, bad) => { $('msg').textContent = text; $('msg').className = 'msg grow' + (bad ? ' err' : ''); };
   // ---- loader strip: who / shops once, then two jobs (list, contents) that may run at the same time ----
   const ld = (() => {
-    const LABEL = { who: 'Checking who you are', shops: 'Finding your shops', list: 'Asking Whatnot', contents: 'Reading what is in each box' };
-    const SHORT = { who: 'you', shops: 'shops', list: 'list', contents: 'contents' };
-    const ORDER = ['who', 'shops', 'list', 'contents'];
+    const LABEL = { who: 'Checking who you are', shops: 'Finding your shops', list: 'Asking Whatnot', contents: 'Reading what is in each box', labels: 'Making labels', pdf: 'Building the PDF' };
+    const SHORT = { who: 'you', shops: 'shops', list: 'list', contents: 'contents', labels: 'labels', pdf: 'PDF' };
+    const ORDER = ['who', 'shops', 'list', 'contents', 'labels', 'pdf'];
     let t0 = 0, clock = null; const active = new Map(); const done = new Set(); let failed = null;
     const tick = () => { $('ldClock').textContent = Math.round((Date.now() - t0) / 1000) + 's'; };
     const draw = () => {
@@ -334,7 +373,7 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
   async function load() {
     if (!shop) return;
     listRun++; const run = listRun; contentsRun++;
-    ships = []; open.clear(); render();
+    ships = []; open.clear(); picked.clear(); render();
     say(''); $('reload').disabled = true; $('stamp').textContent = '';
     ld.clear('list'); ld.clear('contents'); ld.set('list', `@${shop} · last ${SINCE_DAYS} days`);
     const since = new Date(Date.now() - SINCE_DAYS * 864e5).toISOString();
@@ -382,6 +421,72 @@ tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);pa
       }
       if (run === contentsRun) { if (failed) ld.fail('contents', `${failed} boxes not answered by Whatnot, press Refresh to retry`); else ld.done('contents'); ld.bar(null); }
     } finally { pumping = false; if (pumpAgain && run === contentsRun) pumpContents(); }
+  }
+  // Copy fresh fields from a re-read shipment onto the one we hold.
+  function absorb(s, fresh) { if (!s || !fresh || fresh.error) return; for (const k of ['status', 'updated_at', 'has_label', 'tracking', 'carrier', 'service', 'dropoff_due', 'seller_cost_cents', 'required_actions']) s[k] = fresh[k]; }
+  const byId = () => new Map(ships.map(s => [s.id, s]));
+  // Ask Whatnot to make labels for the picked boxes that have none. Shows the list and asks first: this buys postage.
+  let labelsBusy = false;
+  async function makeLabels() {
+    if (labelsBusy) return;
+    const need = pickedShips().filter(s => !s.has_label && s.status === 'created');
+    if (!need.length) return;
+    const names = need.map(s => s.buyer || s.id);
+    const ok = window.confirm(`Ask Whatnot to make ${need.length} label${need.length === 1 ? '' : 's'}? This buys postage.\n\n${names.slice(0, 20).join(', ')}${names.length > 20 ? `, and ${names.length - 20} more` : ''}`);
+    if (!ok) return;
+    labelsBusy = true; $('makeLabels').disabled = true; say('');
+    const map = byId(); let made = 0; const errors = []; let waiting = [];
+    try {
+      for (let i = 0; i < need.length; i += 25) {
+        const batch = need.slice(i, i + 25);
+        ld.set('labels', `${i} of ${need.length} asked, waiting for Whatnot`); ld.bar(i / need.length);
+        const j = await call({ action: 'generate_labels', shipment_ids: batch.map(s => s.id) });
+        for (const s of batch) { const r = j.results && j.results[s.id]; if (!r) continue; absorb(s, r.shipment); if (r.error) errors.push(`${s.buyer || s.id}: ${r.error}`); else if (s.has_label) made++; }
+        waiting = waiting.concat(j.still_waiting || []);
+        render();
+      }
+      // Whatnot is still working on some: re-read them every 5 s for up to 2 minutes.
+      const t0 = Date.now();
+      while (waiting.length && Date.now() - t0 < 120000) {
+        ld.set('labels', `${made} of ${need.length} made · waiting on ${waiting.length}`); ld.bar(made / need.length);
+        await new Promise(r => setTimeout(r, 5000));
+        const j = await call({ action: 'label_status', shipment_ids: waiting });
+        const still = [];
+        for (const id of waiting) { const s = map.get(id), fresh = j.shipments && j.shipments[id]; absorb(s, fresh); if (s && s.has_label) made++; else still.push(id); }
+        waiting = still; render();
+      }
+      if (waiting.length) errors.push(`${waiting.length} still not made after 2 minutes, press Refresh later`);
+      ld.bar(null);
+      if (errors.length) { ld.fail('labels', `${made} made, ${errors.length} problem${errors.length === 1 ? '' : 's'}`); say(errors.join(' · '), true); }
+      else { ld.done('labels'); say(`${made} label${made === 1 ? '' : 's'} made.`); }
+    } catch (err) { ld.bar(null); ld.fail('labels', err.message); say(err.message, true); }
+    finally { labelsBusy = false; render(); }
+  }
+  // One PDF: picked boxes that have a label, earliest day first, fewest different items first inside a day.
+  let pdfBusy = false;
+  async function buildPdf() {
+    if (pdfBusy) return;
+    const ps = pickedShips().filter(s => s.has_label);
+    if (!ps.length) return;
+    if (ps.length > 250) { say(`${ps.length} boxes is more than one PDF can hold (250). Pick fewer.`, true); return; }
+    const byDay = new Map(); for (const s of ps) { const k = dayKey(s.created_at); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(s); }
+    const ordered = [...byDay.keys()].sort().flatMap(k => byDay.get(k).sort(daySort));
+    pdfBusy = true; $('buildPdf').disabled = true; say('');
+    ld.set('pdf', `${ordered.length} boxes · fetching each label from Whatnot`);
+    try {
+      const r = await fetch(FN, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': window.CHUKU.key }, body: JSON.stringify({ shop, action: 'build_pdf', shipment_ids: ordered.map(s => s.id) }) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + r.status)); }
+      const report = JSON.parse(r.headers.get('x-chuku-report') || '{}');
+      const blob = await r.blob();
+      const days = [...byDay.keys()].sort();
+      const name = `labels-${shop}-${days[0]}${days.length > 1 ? '_to_' + days[days.length - 1] : ''}-${ordered.length}boxes.pdf`;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      const map = byId();
+      const miss = (report.missing || []).map(m => `${(map.get(m.id) || {}).buyer || m.id}: ${m.why}`);
+      if (miss.length) { ld.fail('pdf', `${report.boxes} boxes in the file, ${miss.length} left out`); say('Left out: ' + miss.join(' · '), true); }
+      else { ld.done('pdf'); say(`PDF downloaded: ${report.boxes} boxes, ${report.pages} pages, as ${name}`); }
+    } catch (err) { ld.fail('pdf', err.message); say(err.message, true); }
+    finally { pdfBusy = false; renderPrintBar(); }
   }
   async function openLabel(id, btn) {
     const old = btn.textContent; btn.disabled = true; btn.textContent = 'Fetching…';

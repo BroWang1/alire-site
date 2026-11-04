@@ -1,7 +1,10 @@
 // chuku-orders: read-only live view of a shop's shipments from the Whatnot Seller API, using the token in Vault.
-// Actions: list (recent shipments), items (what is in one shipment), label (fresh label links).
+// Actions: list (recent shipments), items / items_bulk (what is in each shipment), label (fresh label links),
+// generate_labels (ask Whatnot to make labels, once per shipment), label_status (re-read shipments),
+// build_pdf (fetch each shipment's label PDF and hand back one combined PDF in the order given).
 // Never exposes the token. Callers must be signed in and on the allowed list.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { PDFDocument } from "npm:pdf-lib@1.17.1";
 
 const WN = "https://api.whatnot.com/seller-api/rest/v2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -11,14 +14,15 @@ const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Expose-Headers": "x-chuku-report",
 };
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function wn(token: string, path: string): Promise<{ status: number; body: any }> {
+async function wn(token: string, path: string, method = "GET"): Promise<{ status: number; body: any }> {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const r = await fetch(WN + path, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+    const r = await fetch(WN + path, { method, headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
     if (r.status === 429) { await sleep(Number(r.headers.get("Retry-After") || 1) * 1000); continue; }
     let body: any = null; try { body = await r.json(); } catch { body = null; }
     return { status: r.status, body };
@@ -155,6 +159,90 @@ Deno.serve(async (req) => {
     if (r.status !== 200) return json(502, { error: `Whatnot answered ${r.status}` });
     const d = r.body?.documents ?? {};
     return json(200, { bundled_url: d.bundled_url ?? null, label_url: d.label_url ?? null, status: r.body?.status });
+  }
+
+  // Re-read shipments (status, label presence). Used while waiting for labels Whatnot is making.
+  if (action === "label_status") {
+    const ids: string[] = (Array.isArray(body.shipment_ids) ? body.shipment_ids : []).slice(0, 100).map(String);
+    const results: Record<string, any> = {};
+    for (let i = 0; i < ids.length; i += 8) {
+      await Promise.all(ids.slice(i, i + 8).map(async (sid) => {
+        const r = await wn(token, `/shipments/${sid}`);
+        results[sid] = r.status === 200 ? slim(r.body) : { error: `Whatnot answered ${r.status}` };
+      }));
+    }
+    return json(200, { shipments: results });
+  }
+
+  // Ask Whatnot to make labels. This buys postage, so each shipment is asked at most once ever
+  // (wn_label_requests remembers). Whatnot only queues the work; we then re-read each shipment for up to ~40 s.
+  if (action === "generate_labels") {
+    const ids: string[] = [...new Set<string>((Array.isArray(body.shipment_ids) ? body.shipment_ids : []).slice(0, 150).map(String))];
+    if (!ids.length) return json(400, { error: "shipment_ids required" });
+    const { data: prior } = await admin.from("wn_label_requests").select("shipment_id, http_status").eq("shop", shop).in("shipment_id", ids);
+    const asked = new Map((prior ?? []).map((r: any) => [r.shipment_id, r.http_status]));
+    const results: Record<string, any> = {};
+    const fresh = ids.filter((id) => !asked.has(id));
+    for (let i = 0; i < fresh.length; i += 5) {
+      const group = fresh.slice(i, i + 5);
+      const got = await Promise.all(group.map((sid) => wn(token, `/shipments/${sid}/generate_label`, "POST")));
+      const rows = group.map((sid, k) => ({ shop, shipment_id: sid, requested_by: u.user!.email, http_status: got[k].status, note: got[k].status === 200 ? null : (got[k].body?.detail ?? got[k].body?.error ?? JSON.stringify(got[k].body ?? "")).toString().slice(0, 300) }));
+      await admin.from("wn_label_requests").upsert(rows, { onConflict: "shop,shipment_id" });
+      group.forEach((sid, k) => { results[sid] = { requested: true, http_status: got[k].status, error: got[k].status === 200 ? null : (got[k].status === 403 ? "Whatnot refused (403): seller verification or token scope" : got[k].status === 409 ? "Whatnot refused (409): shipment settings block label creation" : `Whatnot answered ${got[k].status}`) }; });
+      await sleep(200);
+    }
+    for (const id of ids) if (asked.has(id)) results[id] = { requested: false, http_status: asked.get(id), error: null, note: "already asked before, not asking again" };
+    // Wait for the labels to appear.
+    const pending = new Set(ids.filter((id) => results[id].http_status === 200 || (results[id].requested === false)));
+    const t0 = Date.now();
+    while (pending.size && Date.now() - t0 < 40000) {
+      await sleep(4000);
+      const batch = [...pending];
+      for (let i = 0; i < batch.length; i += 8) {
+        await Promise.all(batch.slice(i, i + 8).map(async (sid) => {
+          const r = await wn(token, `/shipments/${sid}`);
+          if (r.status !== 200) return;
+          const sl = slim(r.body); results[sid].shipment = sl;
+          if (sl.status !== "created" || sl.has_label) pending.delete(sid);
+        }));
+      }
+    }
+    return json(200, { results, still_waiting: [...pending] });
+  }
+
+  // One PDF out of many: fetch each shipment's bundled label+slip PDF in the order given, append pages.
+  if (action === "build_pdf") {
+    const ids: string[] = (Array.isArray(body.shipment_ids) ? body.shipment_ids : []).slice(0, 250).map(String);
+    if (!ids.length) return json(400, { error: "shipment_ids required" });
+    const docs: (Uint8Array | null)[] = new Array(ids.length).fill(null);
+    const missing: { id: string; why: string }[] = [];
+    for (let i = 0; i < ids.length; i += 8) {
+      await Promise.all(ids.slice(i, i + 8).map(async (sid, k) => {
+        const r = await wn(token, `/shipments/${sid}`);
+        if (r.status !== 200) { missing.push({ id: sid, why: `Whatnot answered ${r.status}` }); return; }
+        const url = r.body?.documents?.bundled_url ?? r.body?.documents?.label_url;
+        if (!url) { missing.push({ id: sid, why: "no label yet" }); return; }
+        try {
+          const f = await fetch(url);
+          if (!f.ok) { missing.push({ id: sid, why: `label file ${f.status}` }); return; }
+          docs[i + k] = new Uint8Array(await f.arrayBuffer());
+        } catch (e) { missing.push({ id: sid, why: String(e).slice(0, 120) }); }
+      }));
+    }
+    const out = await PDFDocument.create();
+    let pages = 0, boxes = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const bytes = docs[i]; if (!bytes) continue;
+      try {
+        const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const copied = await out.copyPages(src, src.getPageIndices());
+        for (const pg of copied) { out.addPage(pg); pages++; }
+        boxes++;
+      } catch (e) { missing.push({ id: ids[i], why: "could not read PDF: " + String(e).slice(0, 80) }); }
+    }
+    if (!boxes) return json(502, { error: "none of the labels could be fetched", missing });
+    const bytes = await out.save();
+    return new Response(new Blob([bytes as BlobPart]), { status: 200, headers: { ...cors, "Content-Type": "application/pdf", "x-chuku-report": JSON.stringify({ boxes, pages, missing }) } });
   }
 
   return json(400, { error: "unknown action" });

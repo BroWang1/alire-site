@@ -15,3 +15,17 @@ create table if not exists wn_shipment_cache (
 alter table wn_shipment_cache enable row level security;
 drop policy if exists "allowed read wn_shipment_cache" on wn_shipment_cache;
 create policy "allowed read wn_shipment_cache" on wn_shipment_cache for select to authenticated using (is_allowed());
+
+-- Labels asked for through the page (print batch). One row per shipment, ever: the function never asks Whatnot twice.
+create table if not exists wn_label_requests (
+  shop text not null references shops(shop),
+  shipment_id text not null,
+  requested_at timestamptz not null default now(),
+  requested_by text,
+  http_status int,
+  note text,
+  primary key (shop, shipment_id)
+);
+alter table wn_label_requests enable row level security;
+drop policy if exists "allowed read wn_label_requests" on wn_label_requests;
+create policy "allowed read wn_label_requests" on wn_label_requests for select to authenticated using (is_allowed());
