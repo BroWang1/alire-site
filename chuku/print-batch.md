@@ -1,6 +1,12 @@
 # Print batch — pull untracked boxes, pick, combine, sort (defined 2026-11-04)
 
-Status: **defined, not built.** Lives inside the Order management page, not a new page.
+Status: **v1 built and live 2026-11-05** (commit e290799). Lives inside the Order management page as the "To print" view.
+
+Built in v1: To print view (created + label_generated; pickups never), "Include dropped off" toggle, checkbox per box and per day, Make labels (asks first, once per shipment ever via `wn_label_requests`), Build PDF (earliest day first, fewest different items first inside a day; max 250 boxes).
+Not built: pick by show/stream, pick-list cover page, saving the batch into Chuku `batches`, keeping a copy of the merged PDF, webhook for label-created.
+Not yet tested with real boxes: Make labels (Whatnot may answer 403/409 on this token) and Build PDF against real label files.
+
+Everything below is the original definition.
 
 ## What Whatnot's API allows (checked against the saved reference)
 
