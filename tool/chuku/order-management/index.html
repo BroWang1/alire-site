@@ -401,8 +401,9 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
         const have = new Set(ships.map(s => s.id));
         for (const s of j.shipments || []) if (!have.has(s.id)) { ships.push(s); have.add(s.id); }
         listCursor = j.next_cursor || '';
-        if (!listCursor || j.stopped_by === 'end') { listEnd = true; loadedTo = -Infinity; }
-        else if (j.stopped_by === 'since') loadedTo = Date.parse(since);
+        // A 'since' stop without a cursor (older function build) is not the end: a later, wider range walks from the top again and dedupes.
+        if (j.stopped_by === 'since') loadedTo = Date.parse(since);
+        else if (!listCursor || j.stopped_by === 'end') { listEnd = true; loadedTo = -Infinity; }
         const oldest = ships.reduce((m, s) => (s.created_at && (!m || s.created_at < m)) ? s.created_at : m, null);
         $('stamp').textContent = `${ships.length} boxes${oldest ? ' back to ' + niceDay(dayKey(oldest)) : ''} · Whatnot answered ${new Date(j.fetched_at).toLocaleTimeString()}`;
         ld.set('list', `${ships.length} boxes so far${oldest ? ', back to ' + niceDay(dayKey(oldest)) : ''}`);
