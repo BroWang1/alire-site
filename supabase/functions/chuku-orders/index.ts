@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
       if (c && sameTime(c.updated_at, s.updated_at) && c.status === s.status) { s.contents = { orders: c.orders, sku_count: c.sku_count, unit_count: c.unit_count }; }
     }
     await admin.from("shop_keys").update({ last_sync_at: new Date().toISOString() }).eq("id", key.id);
-    return json(200, { shipments: out, pages, stopped_by: stoppedBy, next_cursor: stoppedBy === "more" ? cursor : null, oldest_seen: isFinite(oldestSeen) ? new Date(oldestSeen).toISOString() : null, ignored_buyers: key.ignored_buyers ?? [], fetched_at: new Date().toISOString(), cached: out.filter((s) => s.contents).length });
+    return json(200, { shipments: out, pages, stopped_by: stoppedBy, next_cursor: cursor || null, oldest_seen: isFinite(oldestSeen) ? new Date(oldestSeen).toISOString() : null, ignored_buyers: key.ignored_buyers ?? [], fetched_at: new Date().toISOString(), cached: out.filter((s) => s.contents).length });
   }
 
   // Contents of one or more shipments. Fetched from Whatnot once, then cached per (shop, shipment, updated_at).
