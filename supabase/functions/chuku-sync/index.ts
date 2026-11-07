@@ -1,14 +1,13 @@
 // chuku-sync: keeps Chuku's own copy of every box (wn_shipments) current from the Whatnot Seller API,
 // writes a change-log row for every status change (wn_shipment_events), fills in contents
 // (wn_shipment_cache), and records each run (wn_sync_runs). Read only toward Whatnot: never makes labels.
-// Called every 5 minutes by pg_cron with the x-sync-key header, or by a signed-in allowed user (Refresh).
+// Called every 5 minutes by pg_cron with the x-sync-key header (value in chuku_settings), or by a signed-in allowed user (Refresh).
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const WN = "https://api.whatnot.com/seller-api/rest/v2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const SYNC_KEY = Deno.env.get("CHUKU_SYNC_KEY") ?? "";
 const WATCH_DAYS = 45;          // how far back each run walks
 const MAX_PAGES = 60;           // 60 x 50 = 3000 boxes per run, more than 45 days ever holds
 const CONTENTS_PER_RUN = 60;    // boxes whose contents are fetched per run (3 Whatnot calls each)
@@ -146,9 +145,12 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { error: "POST only" });
   let body: any = {}; try { body = await req.json(); } catch { body = {}; }
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-  // Who is asking: the cron (shared key) or a signed-in allowed person (Refresh button).
+  // Who is asking: the cron (shared key kept in chuku_settings, readable only by the service role)
+  // or a signed-in allowed person (Refresh button).
   let trigger = "cron";
   const syncKey = req.headers.get("x-sync-key") ?? "";
+  const { data: sk } = await admin.from("chuku_settings").select("value").eq("key", "sync_key").maybeSingle();
+  const SYNC_KEY = sk?.value ?? "";
   if (!(SYNC_KEY && syncKey === SYNC_KEY)) {
     const asUser = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
     const { data: u, error: uerr } = await asUser.auth.getUser();

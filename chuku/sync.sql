@@ -76,9 +76,13 @@ from wn_shipments s
 left join wn_shipment_cache c on c.shop = s.shop and c.shipment_id = s.shipment_id;
 grant select on wn_boxes to authenticated;
 
+-- The shared key the cron sends and the function checks. No RLS policies: only the service role can read it.
+create table if not exists chuku_settings (key text primary key, value text not null, updated_at timestamptz not null default now());
+alter table chuku_settings enable row level security;
+insert into chuku_settings (key, value) values ('sync_key', 'SYNC_KEY') on conflict (key) do update set value = excluded.value, updated_at = now();
+
 -- Schedule: the function is poked every 5 minutes; it decides by Pacific time whether to run
--- (every 5 min 9 AM-4 PM, every 3 hours otherwise). Replace SYNC_KEY with the value stored as the
--- function secret CHUKU_SYNC_KEY before running this part.
+-- (every 5 min 9 AM-4 PM, every 3 hours otherwise). Replace SYNC_KEY (both places) with a long random string before running.
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 select cron.unschedule('chuku-sync') where exists (select 1 from cron.job where jobname = 'chuku-sync');
