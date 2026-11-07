@@ -86,7 +86,7 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
 <body>
 <div class="stack">
   <header class="row" data-chuku-app>
-    <div class="grow"><h1>Order management</h1><p class="muted">Every box, live from Whatnot. View only.</p></div>
+    <div class="grow"><h1>Order management</h1><p class="muted">Every box, synced from Whatnot. View only.</p></div>
     <nav class="nav row"><a href="/tool/chuku/data/">Data</a><a href="/tool/chuku/keys/">Keys</a><a class="on" href="/tool/chuku/order-management/">Orders</a></nav>
     <div class="row"><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
   </header>
@@ -137,6 +137,7 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
   const $ = id => document.getElementById(id);
   const sb = window.ChukuGate && window.ChukuGate.sb; if (!sb) return;
   const FN = window.CHUKU.url + '/functions/v1/chuku-orders';
+  const SYNC_FN = window.CHUKU.url + '/functions/v1/chuku-sync';
   const TZ = 'America/Los_Angeles';
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = c => c == null ? '' : '$' + (c / 100).toFixed(2);
@@ -330,8 +331,9 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
   const onDate = () => { from = $('from').value; to = $('to').value; range = (from || to) ? 'custom' : 'all'; document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('on', range === 'all' && b.dataset.range === 'all')); render(); ensureLoaded(); pumpContents(); };
   $('from').addEventListener('change', onDate); $('to').addEventListener('change', onDate);
   $('q').addEventListener('input', () => { q = $('q').value.trim(); render(); });
-  $('shop').addEventListener('change', () => { shop = $('shop').value; try { localStorage.setItem('chuku.om.shop', shop); } catch (_) {} load(); });
-  $('reload').addEventListener('click', () => load());
+  const setShop = v => { shop = v; const k = shops.find(x => x.shop === v); ignored = new Set(((k && k.ignored_buyers) || []).map(x => String(x).toLowerCase())); };
+  $('shop').addEventListener('change', () => { setShop($('shop').value); try { localStorage.setItem('chuku.om.shop', shop); } catch (_) {} load(); });
+  $('reload').addEventListener('click', async () => { await syncNow('refresh'); load(); });
   $('withDropped').addEventListener('change', () => { withDropped = $('withDropped').checked; render(); pumpContents(); });
   $('pickAll').addEventListener('click', () => { for (const s of visible()) picked.add(s.id); renderDays(); renderPrintBar(); });
   $('pickNone').addEventListener('click', () => { picked.clear(); renderDays(); renderPrintBar(); });
@@ -348,9 +350,9 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
   const say = (text, bad) => { $('msg').textContent = text; $('msg').className = 'msg grow' + (bad ? ' err' : ''); };
   // ---- loader strip: who / shops once, then two jobs (list, contents) that may run at the same time ----
   const ld = (() => {
-    const LABEL = { who: 'Checking who you are', shops: 'Finding your shops', list: 'Asking Whatnot', contents: 'Reading what is in each box', labels: 'Making labels', pdf: 'Building the PDF' };
-    const SHORT = { who: 'you', shops: 'shops', list: 'list', contents: 'contents', labels: 'labels', pdf: 'PDF' };
-    const ORDER = ['who', 'shops', 'list', 'contents', 'labels', 'pdf'];
+    const LABEL = { who: 'Checking who you are', shops: 'Finding your shops', sync: 'Syncing with Whatnot', list: 'Reading boxes', contents: 'Reading what is in each box', labels: 'Making labels', pdf: 'Building the PDF' };
+    const SHORT = { who: 'you', shops: 'shops', sync: 'sync', list: 'boxes', contents: 'contents', labels: 'labels', pdf: 'PDF' };
+    const ORDER = ['who', 'shops', 'sync', 'list', 'contents', 'labels', 'pdf'];
     let t0 = 0, clock = null; const active = new Map(); const done = new Set(); let failed = null;
     const tick = () => { $('ldClock').textContent = Math.round((Date.now() - t0) / 1000) + 's'; };
     const draw = () => {
@@ -370,50 +372,77 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
     };
   })();
   const SINCE_DAYS = 30; let listRun = 0;
-  // The box list is walked newest-first, only as far back as the dates on screen need. Widening the dates
-  // continues the walk from where it stopped (the function hands back its paging cursor), never from the top.
-  let listCursor = '', listEnd = false, loadedTo = Infinity, target = Infinity, walking = false;
+  // Boxes come from Chuku's own copy (wn_boxes), which the sync engine keeps current. Reads only as far back as
+  // the dates on screen need; widening the dates reads the older slice. Refresh asks the sync to run right now.
+  let loadedTo = Infinity, target = Infinity, walking = false, synced = null;
   function neededSince() {
     const cap = Date.now() - SINCE_DAYS * 864e5;
     const [a] = rangeBounds(); const [y, m, d] = a.split('-').map(Number);
     return Math.max(Date.UTC(y, m - 1, d) - 864e5, cap);   // a day of slack so the whole shop-time day is covered
   }
+  const fromRow = r => ({ id: r.shipment_id, url: r.url, status: r.status, fulfillment: r.fulfillment, buyer: r.buyer, buyer_name: r.buyer_name, created_at: r.created_at, updated_at: r.updated_at, dropoff_due: r.dropoff_due, carrier: r.carrier, service: r.service, tracking: r.tracking, has_label: r.has_label, seller_cost_cents: r.seller_cost_cents, weight: r.weight, dims: r.dims, required_actions: r.required_actions || [], replacement_id: r.replacement_id, contents: r.orders ? { orders: r.orders, sku_count: r.sku_count, unit_count: r.unit_count } : undefined });
+  const ago = iso => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  async function readSynced() {
+    const { data } = await sb.from('wn_sync_runs').select('started_at, finished_at, boxes_seen, changed, error, kind').eq('shop', shop).order('started_at', { ascending: false }).limit(1).maybeSingle();
+    synced = data || null; drawStamp();
+  }
+  function drawStamp() {
+    if (!synced) { $('stamp').textContent = ships.length ? `${ships.length} boxes` : ''; return; }
+    const when = synced.finished_at || synced.started_at;
+    const bits = [`${ships.length} boxes`, synced.finished_at ? `synced ${ago(when)}` : `sync running since ${ago(when)}`, synced.finished_at ? `${synced.boxes_seen} seen, ${synced.changed} changed` : '', synced.error ? `problem: ${synced.error}` : ''].filter(Boolean);
+    $('stamp').textContent = bits.join(' · '); $('stamp').className = 'small ' + (synced.error ? 'err' : 'muted');
+  }
   function load() {
     if (!shop) return;
     listRun++; contentsRun++;
-    ships = []; open.clear(); picked.clear(); listCursor = ''; listEnd = false; loadedTo = Infinity; target = Infinity; walking = false;
-    render(); say(''); $('stamp').textContent = ''; ld.clear('list'); ld.clear('contents');
+    ships = []; open.clear(); picked.clear(); loadedTo = Infinity; target = Infinity; walking = false; synced = null;
+    render(); say(''); $('stamp').textContent = ''; ld.clear('sync'); ld.clear('list'); ld.clear('contents');
+    readSynced();
     ensureLoaded();
   }
   async function ensureLoaded() {
     if (!shop) return;
     target = Math.min(target, neededSince());
-    if (walking || listEnd || loadedTo <= target) return;
-    walking = true; const run = listRun; let chunks = 0;
-    $('reload').disabled = true; ld.set('list', `@${shop}`);
+    if (walking || loadedTo <= target) return;
+    walking = true; const run = listRun;
+    ld.set('list', `@${shop}`);
     try {
-      while (!listEnd && loadedTo > target && chunks < 25) {
-        const since = new Date(target).toISOString();
-        const j = await call({ action: 'list', since, cursor: listCursor || null, max_pages: 4 });
-        if (run !== listRun) return;
-        chunks++;
-        ignored = new Set((j.ignored_buyers || []).map(x => x.toLowerCase()));
-        const have = new Set(ships.map(s => s.id));
-        for (const s of j.shipments || []) if (!have.has(s.id)) { ships.push(s); have.add(s.id); }
-        listCursor = j.next_cursor || '';
-        // A 'since' stop without a cursor (older function build) is not the end: a later, wider range walks from the top again and dedupes.
-        if (j.stopped_by === 'since') loadedTo = Date.parse(since);
-        else if (!listCursor || j.stopped_by === 'end') { listEnd = true; loadedTo = -Infinity; }
-        const oldest = ships.reduce((m, s) => (s.created_at && (!m || s.created_at < m)) ? s.created_at : m, null);
-        $('stamp').textContent = `${ships.length} boxes${oldest ? ' back to ' + niceDay(dayKey(oldest)) : ''} · Whatnot answered ${new Date(j.fetched_at).toLocaleTimeString()}`;
-        ld.set('list', `${ships.length} boxes so far${oldest ? ', back to ' + niceDay(dayKey(oldest)) : ''}`);
-        render();
-        pumpContents();
+      while (loadedTo > target) {
+        const lo = new Date(target).toISOString(), hi = isFinite(loadedTo) ? new Date(loadedTo).toISOString() : null;
+        const have = new Set(ships.map(s => s.id)); let got = 0;
+        for (let from = 0; ; from += 1000) {
+          let qb = sb.from('wn_boxes').select('*').eq('shop', shop).gte('created_at', lo); if (hi) qb = qb.lt('created_at', hi);
+          const { data, error } = await qb.order('created_at', { ascending: false }).range(from, from + 999);
+          if (run !== listRun) return;
+          if (error) throw new Error(error.message);
+          for (const r of data || []) if (!have.has(r.shipment_id)) { ships.push(fromRow(r)); have.add(r.shipment_id); }
+          got += (data || []).length; if (!data || data.length < 1000) break;
+        }
+        loadedTo = target;
+        ld.set('list', `${ships.length} boxes`); drawStamp(); render(); pumpContents();
+        if (!got && !ships.length && !synced) { await syncNow('first load'); if (run !== listRun) return; loadedTo = Infinity; if (synced && synced.boxes_seen) continue; }
+        break;
       }
       ld.done('list');
       pumpContents();
     } catch (err) { if (run === listRun) { say(err.message, true); ld.fail('list', err.message); } }
-    finally { if (run === listRun) { walking = false; $('reload').disabled = false; if (!listEnd && loadedTo > target) ensureLoaded(); } }
+    finally { if (run === listRun) { walking = false; if (loadedTo > target) ensureLoaded(); } }
+  }
+  // Ask the sync engine to run for this shop right now, then re-read.
+  let syncing = false;
+  async function syncNow(why) {
+    if (syncing || !shop) return; syncing = true; $('reload').disabled = true;
+    ld.set('sync', why === 'first load' ? 'first time for this shop, this takes a minute' : 'asking Whatnot for changes');
+    try {
+      const r = await fetch(SYNC_FN, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token, 'apikey': window.CHUKU.key }, body: JSON.stringify({ shop }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      const res = (j.results || [])[0] || {};
+      if (res.error) throw new Error(res.error);
+      ld.done('sync');
+      await readSynced();
+    } catch (err) { say('Sync: ' + err.message, true); ld.fail('sync', err.message); }
+    finally { syncing = false; $('reload').disabled = false; }
   }
   // Contents (what is in each box) only for the boxes currently in view, newest first, 15 per call.
   // Re-entered whenever the view changes; the server caches every box it reads.
@@ -520,13 +549,13 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
 
   async function loadShops() {
     ld.set('shops');
-    const { data, error } = await sb.from('shop_keys').select('shop, status, shops(display_name)').is('removed_at', null).order('shop');
+    const { data, error } = await sb.from('shop_keys').select('shop, status, ignored_buyers, shops(display_name)').is('removed_at', null).order('shop');
     if (error) { say(error.message, true); ld.fail('shops', error.message); return; }
     shops = data || [];
     ld.done('shops');
     $('shop').innerHTML = shops.length ? shops.map(k => `<option value="${esc(k.shop)}">@${esc(k.shop)}${k.shops && k.shops.display_name ? ' (' + esc(k.shops.display_name) + ')' : ''}${k.status !== 'ok' ? ' — key ' + esc(k.status) : ''}</option>`).join('') : '<option value="">No shop keys yet</option>';
     let saved = null; try { saved = localStorage.getItem('chuku.om.shop'); } catch (_) {}
-    shop = shops.some(k => k.shop === saved) ? saved : (shops[0] ? shops[0].shop : '');
+    setShop(shops.some(k => k.shop === saved) ? saved : (shops[0] ? shops[0].shop : ''));
     $('shop').value = shop;
     if (!shop) { $('days').innerHTML = '<div class="panel empty">Add a shop token on the <a href="/tool/chuku/keys/">Keys</a> page first.</div>'; return; }
     load();
