@@ -1,6 +1,6 @@
 # Sync engine — Chuku keeps its own copy of every box (defined 2026-11-07)
 
-Status: **defined, not built.** Needs your okay on the three questions at the bottom.
+Status: **built and live 2026-11-07.** Tables + view + schedule in `chuku/sync.sql`, function `supabase/functions/chuku-sync`, orders page reads `wn_boxes`. First run: 1,824 boxes / 45 days in 67 s. Shared key lives in `chuku_settings` (key `sync_key`), not a function secret; the cron call sends the public key to satisfy the gateway's JWT check and `x-sync-key` as the real secret. Verify JWT stays ON for chuku-sync.
 
 ## Why
 
