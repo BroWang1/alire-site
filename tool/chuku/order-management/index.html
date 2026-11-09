@@ -100,6 +100,7 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
         </div>
         <div class="row" style="gap:6px"><input type="date" id="from" aria-label="From"><span class="muted">to</span><input type="date" id="to" aria-label="To"></div>
         <input type="search" id="q" placeholder="Search buyer, item, tracking" style="flex:1 1 180px">
+        <button class="btn" id="printOverdue" title="One PDF of every overdue box that already has a label, last 30 days">Print overdue</button>
         <button class="btn" id="reload">Refresh</button>
       </div>
       <div class="loader" id="loader" hidden>
@@ -339,6 +340,7 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
   $('pickNone').addEventListener('click', () => { picked.clear(); renderDays(); renderPrintBar(); });
   $('makeLabels').addEventListener('click', () => makeLabels());
   $('buildPdf').addEventListener('click', () => buildPdf());
+  $('printOverdue').addEventListener('click', () => printOverdue());
 
   // ---- data ----
   async function call(body) {
@@ -400,10 +402,11 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
     readSynced();
     ensureLoaded();
   }
-  async function ensureLoaded() {
+  async function ensureLoaded(sinceMs) {
     if (!shop) return;
-    target = Math.min(target, neededSince());
-    if (walking || loadedTo <= target) return;
+    target = Math.min(target, sinceMs == null ? neededSince() : sinceMs);
+    while (walking) await new Promise(r => setTimeout(r, 150));   // a walk is on: it honours the lower target, wait for it
+    if (loadedTo <= target) return;
     walking = true; const run = listRun;
     ld.set('list', `@${shop}`);
     try {
@@ -512,9 +515,9 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
   }
   // One PDF: picked boxes that have a label, earliest day first, fewest different items first inside a day.
   let pdfBusy = false;
-  async function buildPdf() {
+  async function buildPdf(list, tag) {
     if (pdfBusy) return;
-    const ps = pickedShips().filter(s => s.has_label);
+    const ps = (list || pickedShips()).filter(s => s.has_label);
     if (!ps.length) return;
     if (ps.length > 250) { say(`${ps.length} boxes is more than one PDF can hold (250). Pick fewer.`, true); return; }
     const byDay = new Map(); for (const s of ps) { const k = dayKey(s.created_at); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(s); }
@@ -527,7 +530,7 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
       const report = JSON.parse(r.headers.get('x-chuku-report') || '{}');
       const blob = await r.blob();
       const days = [...byDay.keys()].sort();
-      const name = `labels-${shop}-${days[0]}${days.length > 1 ? '_to_' + days[days.length - 1] : ''}-${ordered.length}boxes.pdf`;
+      const name = `labels-${tag ? tag + '-' : ''}${shop}-${days[0]}${days.length > 1 ? '_to_' + days[days.length - 1] : ''}-${ordered.length}boxes.pdf`;
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
       const map = byId();
       const miss = (report.missing || []).map(m => `${(map.get(m.id) || {}).buyer || m.id}: ${m.why}`);
@@ -535,6 +538,30 @@ td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
       else { ld.done('pdf'); say(`PDF downloaded: ${report.boxes} boxes, ${report.pages} pages, as ${name}`); }
     } catch (err) { ld.fail('pdf', err.message); say(err.message, true); }
     finally { pdfBusy = false; renderPrintBar(); }
+  }
+  // One button: every overdue box of the last 30 days that already has a label, as one PDF. Never buys postage:
+  // overdue boxes without a label are named and left out (Make labels does that, on purpose).
+  let odBusy = false;
+  async function printOverdue() {
+    if (odBusy || pdfBusy || !shop) return;
+    odBusy = true; $('printOverdue').disabled = true; say('');
+    try {
+      await ensureLoaded(Date.now() - SINCE_DAYS * 864e5);
+      const od = ships.filter(s => isOverdue(s) && !isIgnored(s));
+      const ready = od.filter(s => s.has_label), need = od.length - ready.length;
+      const n = (k, w) => `${k} ${w}${k === 1 ? '' : 'es'}`;
+      if (!od.length) { say(`No overdue boxes in the last ${SINCE_DAYS} days.`); return; }
+      if (!ready.length) { say(`${n(od.length, 'overdue box')}, but none has a label yet. Pick them under To print and press Make labels first.`, true); return; }
+      const lines = [`${n(od.length, 'overdue box')} in the last ${SINCE_DAYS} days.`, `${ready.length} already labeled: one PDF now.`,
+        need ? `${need} still need${need === 1 ? 's' : ''} a label and ${need === 1 ? 'is' : 'are'} left out (that costs postage; use Make labels).` : null, '', 'Build the PDF?'];
+      if (!confirm(lines.filter(l => l !== null).join('\n'))) return;
+      range = 'all'; from = to = ''; $('from').value = $('to').value = '';
+      document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('on', b.dataset.range === 'all'));
+      chip = 'print'; picked.clear(); for (const s of ready) picked.add(s.id);
+      render();
+      await buildPdf(ready, 'overdue');
+    } catch (err) { say(err.message, true); }
+    finally { odBusy = false; $('printOverdue').disabled = false; }
   }
   async function openLabel(id, btn) {
     const old = btn.textContent; btn.disabled = true; btn.textContent = 'Fetching…';

@@ -47,3 +47,7 @@ Everything below is the original definition.
 3. Pick-list page at the front: yes or no?
 4. Making labels: should it ask you every time (approval), or only when the count is above some number?
 5. One-time check needed: does Maddie's token get a 403 on `generate_label`? Needs one real test on one box you choose.
+
+## Print overdue button (built 2026-11-09)
+
+One button in the toolbar, next to Refresh. One click builds one PDF of every overdue box from the last 30 days that already has a label, whatever dates are showing. Overdue = drop-off-by date passed more than a day ago and the carrier has not scanned the box. Pickups and ignored buyers are left out. It never buys postage: overdue boxes without a label are counted in the confirm box and left out (owner's call, 2026-11-09: "only labeled"). The page switches to Last 30 days + To print with those boxes picked, so the list is visible.
