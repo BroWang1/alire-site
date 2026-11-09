@@ -1,6 +1,6 @@
 # Packer pay — rules as discussed on 2026-11-03
 
-Status: **defined, not built.** Nothing below exists yet. Needs the sync engine first (see bottom).
+Status: **defined, not built.** Sync engine is live as of 2026-11-07. Waiting on the flat rate.
 
 ## What it does
 
@@ -14,7 +14,19 @@ Status: **defined, not built.** Nothing below exists yet. Needs the sync engine 
 - You see the same, plus a running total and a **Mark paid** button.
 - Both of you get a notice when a day becomes payable.
 
-## Rates as stated (to be confirmed, see question 1)
+## Decisions, 2026-11-08 (these replace the open questions below)
+
+- **No bands.** One flat rate per box, whatever is inside. Rate still to be given; it lives in settings and can change; each box keeps the rate in force the day it shipped.
+- **One packer** for now. Every box counts for that one person. No per-person tracking yet.
+- **Pickups** earn nothing and are not shown.
+- **No packer sign-in.** The page is for the owner, who shows or tells the packer.
+- **Counted** the day the carrier scans the box (status becomes dropped_off or later). **Payable** the day it shows delivered. A cancellation after shipping removes the credit.
+- Page shows four numbers (To do, Shipped today, On the way, Delivered and payable) with money, then one line per day, plus total owed and a Mark paid button.
+- Stuck boxes: payable 14 days after shipping if never delivered and never cancelled (default, not yet confirmed).
+- Counting starts 2026-11-07, the day the sync engine went live. Boxes shipped before that have no ship date on record.
+- Sync engine is live, so nothing blocks the build except the rate.
+
+## Rates as stated (superseded) (to be confirmed, see question 1)
 
 | Different items in box | Credit |
 |---|---|
