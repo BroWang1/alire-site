@@ -1,6 +1,6 @@
 # Packer pay — rules as discussed on 2026-11-03
 
-Status: **defined, not built.** Sync engine is live as of 2026-11-07. Waiting on the flat rate.
+Status: **built and live 2026-11-08** at /tool/chuku/pay/ (SQL in `chuku/pay.sql`). The rate is set on the page by the owner, with a starting day; rate history is kept. A ship date needs a real hand-off seen by the sync (from created/label_generated to dropped_off or later), so boxes already in transit before 2026-11-07 never count. At go-live check: 123 boxes shipped since Nov 7 (112 + 11), 0 delivered yet, 374 to do.
 
 ## What it does
 
