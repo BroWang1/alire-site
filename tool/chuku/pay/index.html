@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Chuku Pay</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* View-only order management. Shipments come live from the Whatnot Seller API through the chuku-orders
+   Edge Function (the token never reaches the browser). Grouped by day, fewest different items first. */
+:root{
+  --bg:#f2f4f6; --panel:#ffffff; --fg:#17202b; --muted:#5c6b7a; --line:#d3dae2; --line-strong:#aab5c1;
+  --accent:#0d6b70; --accent-ink:#ffffff; --accent-soft:#dff0f0; --good:#1f7a46; --good-soft:#e3f3e8; --warn:#9a5b00; --warn-soft:#fff3dc; --bad:#b3261e; --bad-soft:#fde8e6;
+  --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#121821; --panel:#1a222d; --fg:#e7ecf1; --muted:#97a5b4; --line:#2b3643; --line-strong:#43515f;
+  --accent:#4fb6bb; --accent-ink:#0b1a1b; --accent-soft:#15353a; --good:#5fc48a; --good-soft:#15301f; --warn:#e3a84a; --warn-soft:#3a2d12; --bad:#f28b82; --bad-soft:#3d1c19; color-scheme:dark } }
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;padding-block:24px 48px;padding-inline:max(16px,calc(50% - 560px))}
+h1{font-size:24px;font-weight:600;margin:0} h2{font-size:13px;font-weight:600;margin:0;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0} .muted{color:var(--muted)} .mono{font-family:var(--mono);font-variant-numeric:tabular-nums} .small{font-size:13px}
+.stack{display:flex;flex-direction:column;gap:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center} .grow{flex:1 1 200px;min-width:0}
+.nav a{color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:8px} .nav a.on{background:var(--accent-soft);color:var(--accent)} .nav a:hover{color:var(--fg)}
+.btn{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--fg);font:inherit;font-weight:500;padding:8px 13px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn:hover{border-color:var(--accent)} .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)} .btn:disabled{opacity:.5;cursor:default}
+.btn.sm{padding:4px 9px;font-size:13px}
+input,select{font:inherit;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);color:var(--fg);min-width:0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;font:inherit;color:var(--fg)}
+.tile:hover{border-color:var(--accent)} .tile.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.tile b{display:block;font-size:26px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums} .tile span{font-size:13px;color:var(--muted)}
+.tile.bad b{color:var(--bad)} .tile.warn b{color:var(--warn)} .tile.good b{color:var(--good)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--fg);font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)} .chip small{opacity:.75;margin-left:4px}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap;line-height:1.5}
+.pill.good{background:var(--good-soft);color:var(--good)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.bad{background:var(--bad-soft);color:var(--bad)} .pill.grey{background:var(--bg);color:var(--muted)}
+.day{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.day > summary{list-style:none;cursor:pointer;padding:12px 16px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline;border-bottom:1px solid transparent}
+.day[open] > summary{border-bottom-color:var(--line)} .day > summary::-webkit-details-marker{display:none}
+.day > summary .d{font-weight:600;font-size:16px} .day > summary .c{color:var(--muted);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:14px} th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top} tr.ship:last-child td{border-bottom:0} tr.ship{cursor:pointer} tr.ship:hover td{background:color-mix(in srgb,var(--accent-soft) 45%,transparent)}
+tr.ship.open td{background:color-mix(in srgb,var(--accent-soft) 45%,transparent);border-bottom:0}
+td.items{max-width:420px} .t{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .t.more{color:var(--muted);font-size:13px}
+.n{display:inline-block;min-width:22px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;padding:1px 6px;border-radius:6px;background:var(--bg);margin-right:6px}
+.n.one{background:var(--good-soft);color:var(--good)} .n.unk{color:var(--muted);font-weight:400}
+tr.detail td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);padding:4px 12px 14px 44px}
+.det{display:grid;grid-template-columns:1fr auto;gap:12px 24px;font-size:14px} .det .order{border-left:3px solid var(--line-strong);padding-left:10px;margin-top:6px}
+.det .it{display:flex;gap:10px;justify-content:space-between} .det .it .q{color:var(--muted);min-width:34px;display:inline-block}
+.det .meta{color:var(--muted);font-size:13px;text-align:right;white-space:nowrap} .det .meta div{margin-bottom:2px}
+.ignored td:not(.actions){opacity:.55} .overdue .due{color:var(--bad);font-weight:600}
+.msg{font-size:14px;min-height:1.4em} .err{color:var(--bad)} .prog{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .prog i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+/* Print batch: pick boxes, make missing labels, combine into one PDF. */
+.printbar{position:sticky;top:8px;z-index:5;border-color:var(--accent);box-shadow:0 4px 16px rgba(0,0,0,.08)} .printbar[hidden]{display:none}
+.printbar .count{font-weight:600} .printbar label.tog{gap:6px;cursor:pointer;user-select:none}
+input[type=checkbox].pk{width:18px;height:18px;margin:0;cursor:pointer;accent-color:var(--accent);vertical-align:middle}
+td.pick,th.pick{width:34px;padding-right:0} .day > summary .pk{margin-right:2px}
+/* Checkpoint loader: one slim strip under the controls. Finished checkpoints collapse to ticks; it hides itself as soon as the load is done. */
+.loader[hidden]{display:none} .loader{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent-soft) 40%,var(--panel))}
+.loader .line{display:flex;gap:10px;align-items:flex-start;font-size:14px;min-width:0} .loader .spin{margin-top:3px}
+.loader .spin{flex:0 0 16px;width:16px;height:16px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
+.loader.error .spin{animation:none;border:0;background:var(--bad);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center} .loader.error .spin::before{content:"!"}
+.loader .now{flex:1 1 auto;min-width:0} .loader .now b{font-weight:500} .loader.error .now{color:var(--bad)}
+.loader .ticks{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)} .loader .ticks span{white-space:nowrap} .loader .ticks span::before{content:"✓ ";color:var(--good);font-weight:700}
+.loader .clock{flex:0 0 auto;font-size:12px;color:var(--muted)}
+.loader .bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden} .loader .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:760px){ .loader .ticks{display:none} }
+.cards{display:none}
+@media (max-width:760px){
+  table{display:none} .cards{display:block}
+  .card{padding:12px 14px;border-bottom:1px solid var(--line)} .card:last-child{border-bottom:0} .card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline} .card .top b{font-size:15px} .card .top .pk{margin-right:8px}
+  .card .mid{margin:4px 0;color:var(--fg)} .card .bot{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:13px;color:var(--muted);align-items:center}
+  .card .det{grid-template-columns:1fr;margin-top:8px} .card .det .meta{text-align:left;white-space:normal}
+  .card.ignored{opacity:.6}
+  .row .btn{flex:1 1 auto} .tile b{font-size:22px}
+}
+
+/* Pay page */
+.tile.static{cursor:default} .tile.static:hover{border-color:var(--line)} .tile em{display:block;font-style:normal;font-size:15px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.rate input[type=number]{width:96px} .hist{font-size:13px;color:var(--muted)}
+table.pay td,table.pay th{text-align:right} table.pay td:first-child,table.pay th:first-child{text-align:left}
+tr.dayrow{cursor:pointer} tr.dayrow:hover td{background:color-mix(in srgb,var(--accent-soft) 45%,transparent)}
+tr.boxes td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);text-align:left!important;padding:8px 12px 12px 28px}
+.bx{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 16px;font-size:13px} .bx span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.strike{text-decoration:line-through;color:var(--muted)}
+@media (max-width:760px){ table.pay{display:table;font-size:13px} table.pay td,table.pay th{padding:8px 6px} .hide-sm{display:none} }
+</style>
+</head>
+<body>
+<div class="stack">
+  <header class="row" data-chuku-app>
+    <div class="grow"><h1>Packer pay</h1><p class="muted">One flat rate per shipped box. Counted when the carrier scans it, payable when it is delivered.</p></div>
+    <nav class="nav row"><a href="/tool/chuku/data/">Data</a><a href="/tool/chuku/keys/">Keys</a><a href="/tool/chuku/order-management/">Orders</a><a class="on" href="/tool/chuku/pay/">Pay</a></nav>
+    <div class="row"><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
+  </header>
+
+  <main data-chuku-app class="stack">
+    <section class="panel stack" style="gap:12px">
+      <div class="row">
+        <label class="row" style="gap:6px">Shop <select id="shop"></select></label>
+        <span class="grow"></span>
+        <button class="btn" id="reload">Refresh</button>
+      </div>
+      <div class="row rate">
+        <label class="row" style="gap:6px">Rate per box $ <input type="number" id="rate" min="0" max="100" step="0.01" inputmode="decimal" placeholder="0.25"></label>
+        <label class="row" style="gap:6px">starting <input type="date" id="rateFrom"></label>
+        <button class="btn primary" id="saveRate">Save rate</button>
+        <span class="hist grow" id="rateHist"></span>
+      </div>
+      <p class="small muted">A new rate only applies to boxes shipped on or after its starting day. Boxes shipped earlier keep the rate they had.</p>
+      <div class="row"><span class="msg grow" id="msg"></span><span class="muted small" id="stamp"></span></div>
+    </section>
+
+    <section class="tiles" id="tiles"></section>
+
+    <section class="panel row" id="paybar">
+      <div class="grow"><b id="oweLine">Nothing to pay yet.</b><div class="small muted" id="oweNote"></div></div>
+      <input type="text" id="payNote" placeholder="Note (optional), e.g. cash" style="flex:1 1 180px">
+      <button class="btn primary" id="markPaid" disabled>Mark paid</button>
+    </section>
+
+    <section class="day"><table class="pay"><thead><tr><th>Day shipped</th><th>Boxes</th><th>Earned</th><th>On the way</th><th>Delivered</th><th class="hide-sm">Cancelled</th><th>Paid</th></tr></thead><tbody id="days"><tr><td colspan="7" class="empty">Pick a shop.</td></tr></tbody></table></section>
+
+    <section class="panel stack" style="gap:8px"><h2>Payments made</h2><div id="payments" class="small muted">None yet.</div></section>
+  </main>
+</div>
+
+<script src="/tool/chuku-config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="/tool/chuku/gate.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const sb = window.ChukuGate && window.ChukuGate.sb; if (!sb) return;
+  const TZ = 'America/Los_Angeles', STUCK_DAYS = 14;
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = c => c == null ? '—' : '$' + (c / 100).toFixed(2);
+  const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const dayKey = iso => dayFmt.format(new Date(iso));
+  const today = () => dayKey(new Date().toISOString());
+  const niceDay = key => { const [y, m, d] = key.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' }); };
+  const ago = iso => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  const say = (text, bad) => { $('msg').textContent = text; $('msg').className = 'msg grow' + (bad ? ' err' : ''); };
+
+  let shops = [], shop = '', boxes = [], rates = [], payments = [], paid = new Map(), synced = null, run = 0;
+  const openDays = new Set();
+  $('signOut').addEventListener('click', () => window.ChukuGate.signOut());
+
+  // The rate for a ship day: the latest rate whose starting day is on or before it.
+  function rateFor(key) { let c = null; for (const r of rates) { if (r.effective_from <= key) c = r.cents; else break; } return c; }
+  // Where a shipped box stands. Money: what was actually paid if paid, else the rate of its ship day.
+  function judge(b) {
+    const p = paid.get(b.shipment_id);
+    const shipDay = dayKey(b.shipped_at);
+    const cents = p ? p.cents : rateFor(shipDay);
+    let state;
+    if (p) state = 'paid';
+    else if (b.cancelled) state = 'cancelled';
+    else if (b.delivered_at || b.status === 'delivered') state = 'payable';
+    else if (Date.now() - new Date(b.shipped_at).getTime() > STUCK_DAYS * 864e5) state = 'payable';
+    else state = 'onway';
+    return { ...b, shipDay, cents, state, stuck: state === 'payable' && !(b.delivered_at || b.status === 'delivered') };
+  }
+  const sum = list => list.reduce((a, b) => a + (b.cents || 0), 0);
+
+  function render() {
+    const shipped = boxes.filter(b => b.shipped_at).map(judge);
+    const todo = boxes.filter(b => !b.shipped_at && !b.cancelled && (b.status === 'created' || b.status === 'label_generated'));
+    const t = today(), rateNow = rateFor(t);
+    const todayList = shipped.filter(b => b.shipDay === t && b.state !== 'cancelled');
+    const onway = shipped.filter(b => b.state === 'onway'), payable = shipped.filter(b => b.state === 'payable'), paidList = shipped.filter(b => b.state === 'paid');
+    const tile = (n, label, sub, cls) => `<div class="tile static ${n ? cls : ''}"><b>${n}</b><span>${label}</span><em>${sub}</em></div>`;
+    $('tiles').innerHTML = [
+      tile(todo.length, 'To do', rateNow == null ? 'set a rate' : money(todo.length * rateNow) + ' to earn', 'warn'),
+      tile(todayList.length, 'Shipped today', money(sum(todayList)) + ' earned', 'good'),
+      tile(onway.length, 'On the way', money(sum(onway)) + ' waiting', ''),
+      tile(payable.length, 'Delivered, to pay', money(sum(payable)), 'good'),
+      tile(paidList.length, 'Paid', money(payments.reduce((a, p) => a + p.amount_cents, 0)), ''),
+    ].join('');
+
+    // what is owed
+    const priced = payable.filter(b => b.cents != null), unpriced = payable.length - priced.length;
+    $('oweLine').textContent = priced.length ? `You owe ${money(sum(priced))} for ${priced.length} delivered box${priced.length === 1 ? '' : 'es'}.` : 'Nothing to pay yet.';
+    const stuck = priced.filter(b => b.stuck).length;
+    $('oweNote').textContent = [unpriced ? `${unpriced} delivered box${unpriced === 1 ? ' has' : 'es have'} no rate for the day shipped. Save a rate starting on or before that day.` : '', stuck ? `${stuck} counted as delivered after ${STUCK_DAYS} days with no cancellation.` : ''].filter(Boolean).join(' ');
+    $('markPaid').disabled = !priced.length; $('markPaid').textContent = priced.length ? `Mark ${money(sum(priced))} paid` : 'Mark paid';
+    $('markPaid').onclick = () => markPaid(priced);
+
+    // per day
+    const byDay = new Map(); for (const b of shipped) { if (!byDay.has(b.shipDay)) byDay.set(b.shipDay, []); byDay.get(b.shipDay).push(b); }
+    const keys = [...byDay.keys()].sort().reverse();
+    const STATE = { onway: ['On the way', ''], payable: ['Delivered', 'good'], paid: ['Paid', 'grey'], cancelled: ['Cancelled', 'bad'] };
+    $('days').innerHTML = keys.length ? keys.map(k => {
+      const list = byDay.get(k), live = list.filter(b => b.state !== 'cancelled');
+      const c = s => list.filter(b => b.state === s).length;
+      const row = `<tr class="dayrow" data-day="${k}"><td><b>${esc(niceDay(k))}</b>${k === t ? ' <span class="pill">today</span>' : ''}</td><td>${live.length}</td><td>${money(sum(live))}</td><td>${c('onway') || ''}</td><td>${(c('payable') + c('paid')) || ''}</td><td class="hide-sm">${c('cancelled') || ''}</td><td>${c('paid') ? money(sum(list.filter(b => b.state === 'paid'))) : ''}</td></tr>`;
+      const det = openDays.has(k) ? `<tr class="boxes"><td colspan="7"><div class="bx">${list.sort((a, b) => (a.buyer || '').localeCompare(b.buyer || '')).map(b => `<span class="${b.state === 'cancelled' ? 'strike' : ''}"><span class="pill ${STATE[b.state][1]}">${STATE[b.state][0]}${b.stuck ? ' (14 d)' : ''}</span> ${esc(b.buyer || b.shipment_id)} · ${money(b.cents)}</span>`).join('')}</div></td></tr>` : '';
+      return row + det;
+    }).join('') : `<tr><td colspan="7" class="empty">${shop ? 'No boxes have shipped since counting started. Boxes appear here the day the carrier scans them.' : 'Pick a shop.'}</td></tr>`;
+
+    // rate + payments
+    $('rateHist').textContent = rates.length ? 'Rates: ' + rates.slice().reverse().map(r => `${money(r.cents)} from ${niceDay(r.effective_from)}`).join(' · ') : 'No rate set yet. Enter one and press Save rate.';
+    if (rateNow != null && document.activeElement !== $('rate')) $('rate').value = (rateNow / 100).toFixed(2);
+    $('payments').innerHTML = payments.length ? payments.map(p => `<div>${esc(new Date(p.paid_at).toLocaleDateString('en-US', { timeZone: TZ, month: 'short', day: 'numeric', year: 'numeric' }))} · <b>${money(p.amount_cents)}</b> · ${p.boxes} box${p.boxes === 1 ? '' : 'es'}${p.note ? ' · ' + esc(p.note) : ''}${p.paid_by ? ' · ' + esc(p.paid_by) : ''}</div>`).join('') : 'None yet.';
+    const first = shipped.reduce((m, b) => (!m || b.shipped_at < m) ? b.shipped_at : m, null);
+    $('stamp').textContent = [synced ? `synced ${ago(synced.finished_at || synced.started_at)}` : '', first ? `counting since ${niceDay(dayKey(first))}` : ''].filter(Boolean).join(' · ');
+  }
+
+  document.addEventListener('click', e => { const r = e.target.closest('tr.dayrow'); if (r) { const k = r.dataset.day; if (openDays.has(k)) openDays.delete(k); else openDays.add(k); render(); } });
+
+  async function pageAll(build) { const out = []; for (let from = 0; ; from += 1000) { const { data, error } = await build().range(from, from + 999); if (error) throw new Error(error.message); out.push(...(data || [])); if (!data || data.length < 1000) break; } return out; }
+  async function load(keepMsg) {
+    if (!shop) return;
+    const my = ++run; if (!keepMsg) say('Loading…'); $('reload').disabled = true;
+    try {
+      const [bx, rt, pm, pb, sr] = await Promise.all([
+        pageAll(() => sb.from('wn_pay_boxes').select('*').eq('shop', shop).or('shipped_at.not.is.null,status.in.(created,label_generated)').order('shipment_id')),
+        sb.from('pay_rates').select('effective_from, cents, set_by, set_at').eq('shop', shop).order('effective_from'),
+        sb.from('pay_payments').select('id, paid_at, amount_cents, boxes, note, paid_by').eq('shop', shop).order('paid_at', { ascending: false }),
+        pageAll(() => sb.from('pay_paid_boxes').select('shipment_id, payment_id, cents').eq('shop', shop).order('shipment_id')),
+        sb.from('wn_sync_runs').select('started_at, finished_at, error').eq('shop', shop).order('started_at', { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (my !== run) return;
+      for (const r of [rt, pm, sr]) if (r.error) throw new Error(r.error.message);
+      boxes = bx; rates = rt.data || []; payments = pm.data || []; paid = new Map(pb.map(p => [p.shipment_id, p])); synced = sr.data || null;
+      if (!keepMsg) say(''); render();
+    } catch (err) { if (my === run) say(err.message, true); }
+    finally { if (my === run) $('reload').disabled = false; }
+  }
+
+  $('saveRate').addEventListener('click', async () => {
+    const dollars = parseFloat($('rate').value), from = $('rateFrom').value || today();
+    if (!isFinite(dollars) || dollars < 0) { say('Enter the rate in dollars, for example 0.25', true); return; }
+    const cents = Math.round(dollars * 100);
+    $('saveRate').disabled = true;
+    const { error } = await sb.rpc('set_pay_rate', { p_shop: shop, p_cents: cents, p_from: from });
+    $('saveRate').disabled = false;
+    if (error) { say(error.message, true); return; }
+    say(`Rate saved: ${money(cents)} a box from ${niceDay(from)}.`); load(true);
+  });
+  async function markPaid(list) {
+    if (!list.length) return;
+    const total = sum(list);
+    if (!window.confirm(`Record a payment of ${money(total)} for ${list.length} delivered box${list.length === 1 ? '' : 'es'}?\n\nThis only records it here. It does not move any money.`)) return;
+    $('markPaid').disabled = true;
+    const { error } = await sb.rpc('mark_pay_paid', { p_shop: shop, p_boxes: list.map(b => ({ id: b.shipment_id, cents: b.cents })), p_note: $('payNote').value });
+    if (error) { say(error.message, true); $('markPaid').disabled = false; return; }
+    $('payNote').value = ''; say(`Recorded ${money(total)} paid.`); load(true);
+  }
+
+  $('shop').addEventListener('change', () => { shop = $('shop').value; try { localStorage.setItem('chuku.om.shop', shop); } catch (_) {} openDays.clear(); load(); });
+  $('reload').addEventListener('click', () => load());
+  async function loadShops() {
+    const { data, error } = await sb.from('shop_keys').select('shop, status, shops(display_name)').is('removed_at', null).order('shop');
+    if (error) { say(error.message, true); return; }
+    shops = data || [];
+    $('shop').innerHTML = shops.length ? shops.map(k => `<option value="${esc(k.shop)}">@${esc(k.shop)}${k.shops && k.shops.display_name ? ' (' + esc(k.shops.display_name) + ')' : ''}</option>`).join('') : '<option value="">No shop keys yet</option>';
+    let saved = null; try { saved = localStorage.getItem('chuku.om.shop'); } catch (_) {}
+    shop = shops.some(k => k.shop === saved) ? saved : (shops[0] ? shops[0].shop : '');
+    $('shop').value = shop; $('rateFrom').value = today();
+    load();
+  }
+  window.ChukuGate.ready(ctx => { $('whoEmail').textContent = ctx.email; loadShops(); });
+})();
+</script>
+</body>
+</html>
