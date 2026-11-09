@@ -47,6 +47,8 @@ shipped as (
   select e.shop, e.shipment_id, min(e.seen_at) as shipped_at
   from wn_shipment_events e join first_load f on f.shop = e.shop
   where e.to_status in ('dropped_off', 'in_transit', 'delivered') and e.seen_at > f.t
+    -- only a real hand-off counts: it was still with us (or brand new) just before
+    and (e.from_status is null or e.from_status in ('created', 'label_generated'))
   group by e.shop, e.shipment_id),
 delivered as (
   select e.shop, e.shipment_id, min(e.seen_at) as delivered_at
