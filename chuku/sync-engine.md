@@ -31,7 +31,7 @@ Boxes older than 45 days stop being watched. A box that has been Delivered for 7
 - Table `wn_sync_runs`: one row per run.
 - Existing `wn_shipment_cache` keeps holding contents.
 - Edge Function `chuku-sync`: does the run above. One run at a time per shop. Stops and marks the key invalid if Whatnot answers 401. Never creates labels.
-- Schedule (your call, 2026-11-07): **every 5 minutes from 9 AM to 4 PM Pacific, every 3 hours outside that**, plus the Refresh button on the page to sync right now. The page shows "last synced" with the time, how many boxes were seen, and how many changed. Supabase's built-in cron runs it; free tier allows this many times over.
+- Schedule (your call, 2026-11-07, window moved 2026-11-09): **every 5 minutes from 11 AM to 7 PM Pacific, every 3 hours outside that**, plus the Refresh button on the page to sync right now. The page shows "last synced" with the time, how many boxes were seen, and how many changed. Supabase's built-in cron runs it; free tier allows this many times over.
 - Orders page: reads the tables directly, same sign-in gate. The live functions stay for labels, PDF, and "sync now".
 - Existing label-sorter `shipments` rows can be joined on tracking number, so the data page and the orders page talk about the same box.
 
@@ -44,6 +44,6 @@ Boxes older than 45 days stop being watched. A box that has been Delivered for 7
 
 ## Questions
 
-1. ~~Interval~~ Answered: 5 min 9–4 Pacific, 3 hours otherwise, manual Refresh, last-synced stamp.
+1. ~~Interval~~ Answered: 5 min 11 AM–7 PM Pacific (was 9–4 until 2026-11-09), 3 hours otherwise, manual Refresh, last-synced stamp.
 2. **45 days** of watching per box. Enough for delivery and cancellations? (Overseas or stuck boxes can take longer.)
 3. **Where do the first rows come from?** The first run writes the last 45 days as "seen now", so status change times start from the day the sync goes live. Nothing before that gets a change time. OK?

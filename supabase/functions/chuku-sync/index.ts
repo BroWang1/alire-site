@@ -11,7 +11,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const WATCH_DAYS = 45;          // how far back each run walks
 const MAX_PAGES = 60;           // 60 x 50 = 3000 boxes per run, more than 45 days ever holds
 const CONTENTS_PER_RUN = 60;    // boxes whose contents are fetched per run (3 Whatnot calls each)
-const DAY_START = 9, DAY_END = 17;   // Pacific hours: every run between 9:00 and 16:59
+const DAY_START = 11, DAY_END = 19;  // Pacific hours: every run between 11:00 and 18:59
 const NIGHT_GAP_MS = 3 * 3600e3;     // otherwise only if the last run is older than this
 const cors = {
   "Access-Control-Allow-Origin": "*",

@@ -82,7 +82,7 @@ alter table chuku_settings enable row level security;
 insert into chuku_settings (key, value) values ('sync_key', 'SYNC_KEY') on conflict (key) do update set value = excluded.value, updated_at = now();
 
 -- Schedule: the function is poked every 5 minutes; it decides by Pacific time whether to run
--- (every 5 min 9 AM-4 PM, every 3 hours otherwise). The public key satisfies the gateway's JWT check; x-sync-key is the real secret. Replace SYNC_KEY (both places) with a long random string before running.
+-- (every 5 min 11 AM-7 PM, every 3 hours otherwise). The public key satisfies the gateway's JWT check; x-sync-key is the real secret. Replace SYNC_KEY (both places) with a long random string before running.
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 select cron.unschedule('chuku-sync') where exists (select 1 from cron.job where jobname = 'chuku-sync');
