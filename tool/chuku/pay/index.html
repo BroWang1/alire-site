@@ -24,7 +24,7 @@ p{margin:0} .muted{color:var(--muted)} .mono{font-family:var(--mono);font-varian
 .stack{display:flex;flex-direction:column;gap:16px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center} .grow{flex:1 1 200px;min-width:0}
-.nav a{color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:8px} .nav a.on{background:var(--accent-soft);color:var(--accent)} .nav a:hover{color:var(--fg)}
+.nav{gap:6px} .nav a{color:var(--fg);text-decoration:none;padding:8px 14px;border-radius:8px;border:1px solid var(--line-strong);background:var(--panel);font-weight:500} .nav a.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)} .nav a:hover{border-color:var(--accent)}
 .btn{appearance:none;border:1px solid var(--line-strong);background:var(--panel);color:var(--fg);font:inherit;font-weight:500;padding:8px 13px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
 .btn:hover{border-color:var(--accent)} .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)} .btn:disabled{opacity:.5;cursor:default}
 .btn.sm{padding:4px 9px;font-size:13px}
@@ -97,7 +97,7 @@ tr.boxes td{background:color-mix(in srgb,var(--accent-soft) 25%,transparent);tex
 <div class="stack">
   <header class="row" data-chuku-app>
     <div class="grow"><h1>Packer pay</h1><p class="muted">One flat rate per shipped box. Counted when the carrier scans it, payable when it is delivered.</p></div>
-    <nav class="nav row"><a href="/tool/chuku/data/">Data</a><a href="/tool/chuku/keys/">Keys</a><a href="/tool/chuku/order-management/">Orders</a><a class="on" href="/tool/chuku/pay/">Pay</a></nav>
+    <nav class="nav row"><a href="/tool/chuku/data/">Data</a><a href="/tool/chuku/keys/">Keys</a><a href="/tool/chuku/order-management/">Orders</a><a class="on" href="/tool/chuku/pay/">Packer pay</a></nav>
     <div class="row"><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
   </header>
 

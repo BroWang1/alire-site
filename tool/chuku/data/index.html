@@ -83,12 +83,14 @@ footer{color:var(--muted);font-size:13px}
   .sm-hide{display:none}
   .detail{padding:8px}
 }
+.nav{gap:6px} .nav a{color:var(--fg);text-decoration:none;padding:8px 14px;border-radius:8px;border:1px solid var(--line-strong);background:var(--panel);font-weight:500} .nav a.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)} .nav a:hover{border-color:var(--accent)} .nav{display:flex;flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div class="stack">
   <header class="row" id="pageHead" data-chuku-app>
     <div class="grow"><h1>Chuku Data</h1><p class="muted">Every packing slip dropped into the Label Sorter, kept for good.</p></div>
+    <nav class="nav row"><a class="on" href="/tool/chuku/data/">Data</a><a href="/tool/chuku/keys/">Keys</a><a href="/tool/chuku/order-management/">Orders</a><a href="/tool/chuku/pay/">Packer pay</a></nav>
     <div id="who" class="row" hidden><span class="muted" id="whoEmail"></span><button class="btn" id="signOut">Sign out</button></div>
   </header>
 
