@@ -26,7 +26,7 @@ Awaiting Item" for 19 and 29 days; Whatnot still said In transit. 3 used letter 
   TrackingDetail, 207 = mixed. Specs saved from developers.usps.com (tracking-v3r2_7.yaml, oauth2_update_1.yaml).
 
 ## Not built yet
-- Daily cron (after approval): `chuku-track` once a day ~6 AM Pacific, body `{"sweep":true}`.
+- ~~Daily cron~~ scheduled 2026-11-12: `chuku-track` daily 14:00 UTC, body `{"sweep":true}`; logs 403 until USPS approves, then works.
 - Orders page: "Where is it" line per box, tile "USPS never got it", chip, 2-day rule with Sundays skipped.
 - Email line.
 
@@ -34,4 +34,4 @@ Awaiting Item" for 19 and 29 days; Whatnot still said In transit. 3 used letter 
 First real call returned HTTP 403: "The requested MID is not authorized for access to /tracking. USPS implemented Tracking
 API Access Controls 4/1/2026. If you still require access submit an IP Agreement inquiry via Email Us
 https://emailus.usps.com/s/usps-APIs or call the API Access Control Helpdesk 1-(877)-672-0007 dial option #6 then option #2."
-The token and the function work; only USPS's permission for this account's Mailer ID is missing. Owner to request it.
+The token and the function work; only USPS's permission for this account's Mailer ID is missing. Owner submitted the IP Agreement inquiry 2026-11-12 (API Onboarding form).

@@ -44,3 +44,18 @@ drop policy if exists "allowed read wn_tracking"   on wn_tracking;
 drop policy if exists "allowed read wn_track_runs" on wn_track_runs;
 create policy "allowed read wn_tracking"   on wn_tracking   for select to authenticated using (is_allowed());
 create policy "allowed read wn_track_runs" on wn_track_runs for select to authenticated using (is_allowed());
+
+-- Daily sweep at 14:00 UTC (6 AM Pacific in winter, 7 AM in summer). Until USPS approves tracking access each run
+-- just logs the 403 in wn_track_runs; the day they approve, it starts working on its own.
+select cron.unschedule('chuku-track') where exists (select 1 from cron.job where jobname = 'chuku-track');
+select cron.schedule(
+  'chuku-track', '0 14 * * *',
+  $$ select net.http_post(
+       url := 'https://cxsqqniunjenklxexbvb.supabase.co/functions/v1/chuku-track',
+       headers := jsonb_build_object('Content-Type', 'application/json',
+                    'apikey', 'sb_publishable_CdZMIc0Jb6oLmnyY0AmQNw_rGAV6Ogz',
+                    'Authorization', 'Bearer sb_publishable_CdZMIc0Jb6oLmnyY0AmQNw_rGAV6Ogz',
+                    'x-sync-key', (select value from chuku_settings where key = 'sync_key')),
+       body := '{"sweep":true}'::jsonb,
+       timeout_milliseconds := 300000) $$
+);
