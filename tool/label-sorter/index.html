@@ -548,6 +548,10 @@ td.user{font-family:var(--mono);font-size:13px}
   async function addCountPages(out) {
     const { StandardFonts, rgb } = PDFLib;
     const font = await out.embedFont(StandardFonts.Helvetica), bold = await out.embedFont(StandardFonts.HelveticaBold);
+    // The built-in font only knows Latin characters. Anything else in a product or file name (■, emoji, Chinese)
+    // is left out of the count page so the PDF always builds; the slips themselves are copied untouched.
+    const okChars = new Set(font.getCharacterSet());
+    const safe = t => [...String(t)].map(ch => okChars.has(ch.codePointAt(0)) ? ch : ' ').join('').replace(/\s+/g, ' ').trim() || '?';
     const W = 288, H = 432, M = 16, size = 9, lh = 12;
     const counts = productCounts(state.order);
     const total = counts.reduce((a, c) => a + c.units, 0);
@@ -560,14 +564,14 @@ td.user{font-family:var(--mono);font-size:13px}
     const newPage = () => {
       page = out.addPage([W, H]); pageNo++; y = H - M;
       page.drawText('Product count', { x: M, y: y - 12, size: 13, font: bold });
-      page.drawText(`${baseName()}  ·  ${state.order.length} boxes  ·  page ${pageNo}`, { x: M, y: y - 25, size: 7.5, font, color: rgb(.35, .35, .35) });
+      page.drawText(`${safe(baseName())}  ·  ${state.order.length} boxes  ·  page ${pageNo}`, { x: M, y: y - 25, size: 7.5, font, color: rgb(.35, .35, .35) });
       y -= 40;
       page.drawText('UNITS', { x: M, y, size: 7, font: bold }); page.drawText('PRODUCT', { x: M + 40, y, size: 7, font: bold }); page.drawText('BOXES', { x: W - M - 28, y, size: 7, font: bold });
       y -= 4; page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: .6, color: rgb(.6, .6, .6) }); y -= lh;
     };
     newPage();
     for (const c of counts) {
-      const lines = wrap(c.product, W - M * 2 - 40 - 34);
+      const lines = wrap(safe(c.product), W - M * 2 - 40 - 34);
       if (y - lines.length * lh < M + 14) newPage();
       page.drawText(String(c.units), { x: M + 2, y, size: 11, font: bold });
       page.drawText(String(c.boxes), { x: W - M - 28, y, size, font });
